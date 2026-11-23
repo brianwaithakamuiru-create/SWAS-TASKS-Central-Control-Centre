@@ -1,0 +1,6 @@
+{
+  "name": "SWAS TASKS – Central Control Centre",
+  "description": "Private central administration backend and API control platform for SWAS TASKS.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

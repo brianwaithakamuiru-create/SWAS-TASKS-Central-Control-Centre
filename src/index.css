@@ -1,0 +1,207 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-heading: "Poppins", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+@layer base {
+  :root {
+    --swas-navy: #102B50;
+    --swas-royal: #1265C8;
+    --swas-light-blue: #E9F2FF;
+    --swas-bg: #F3F6FA;
+    --swas-surface: #FFFFFF;
+    --swas-text: #172B46;
+    --swas-muted: #75869D;
+    --swas-success: #15966B;
+    --swas-warning: #E6A23C;
+    --swas-danger: #D34552;
+
+    --swas-font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --swas-font-heading: "Poppins", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --swas-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+
+  html,
+  body {
+    font-family: var(--swas-font-sans);
+    font-size: 14px;
+    font-weight: 400;
+    line-height: 1.5;
+    background-color: var(--swas-bg);
+    color: var(--swas-text);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  .font-heading {
+    font-family: var(--swas-font-heading);
+    font-weight: 600;
+    letter-spacing: -0.015em;
+  }
+
+  label {
+    font-family: var(--swas-font-sans);
+  }
+
+  input,
+  select,
+  textarea {
+    font-family: var(--swas-font-sans);
+    font-size: 14px;
+    font-weight: 400;
+    line-height: 1.45;
+  }
+
+  button {
+    font-family: var(--swas-font-sans);
+  }
+
+  table {
+    font-family: var(--swas-font-sans);
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 1.45;
+  }
+
+  th {
+    font-weight: 500;
+  }
+
+  code,
+  pre,
+  .font-mono,
+  .font-code {
+    font-family: var(--swas-font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  .typo-dashboard-heading {
+    font-family: var(--swas-font-heading);
+    font-size: 24px;
+    font-weight: 600;
+    line-height: 1.25;
+    letter-spacing: -0.02em;
+  }
+
+  @media (min-width: 640px) {
+    .typo-dashboard-heading {
+      font-size: 28px;
+    }
+  }
+
+  .typo-page-heading {
+    font-family: var(--swas-font-heading);
+    font-size: 21px;
+    font-weight: 600;
+    line-height: 1.3;
+    letter-spacing: -0.015em;
+  }
+
+  @media (min-width: 640px) {
+    .typo-page-heading {
+      font-size: 24px;
+    }
+  }
+
+  .typo-section-heading {
+    font-family: var(--swas-font-heading);
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 1.35;
+    letter-spacing: -0.01em;
+  }
+
+  .typo-card-heading {
+    font-family: var(--swas-font-heading);
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1.4;
+    letter-spacing: -0.01em;
+  }
+
+  .typo-nav {
+    font-family: var(--swas-font-sans);
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.4;
+  }
+
+  .typo-body {
+    font-family: var(--swas-font-sans);
+    font-size: 14px;
+    font-weight: 400;
+    line-height: 1.55;
+  }
+
+  .typo-table {
+    font-family: var(--swas-font-sans);
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 1.45;
+  }
+
+  .typo-label {
+    font-family: var(--swas-font-sans);
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.4;
+  }
+
+  .typo-input {
+    font-family: var(--swas-font-sans);
+    font-size: 14px;
+    font-weight: 400;
+    line-height: 1.45;
+  }
+
+  .typo-button {
+    font-family: var(--swas-font-sans);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.25;
+  }
+
+  .typo-meta {
+    font-family: var(--swas-font-sans);
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 1.45;
+  }
+
+  .typo-small {
+    font-family: var(--swas-font-sans);
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1.35;
+  }
+
+  .typo-tech {
+    font-family: var(--swas-font-mono);
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 1.45;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #ffffff !important;
+  }
+}

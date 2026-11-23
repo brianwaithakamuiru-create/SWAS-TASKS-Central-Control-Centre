@@ -1,0 +1,665 @@
+{
+  "entities": {
+    "AdminUser": {
+      "title": "AdminUser",
+      "description": "Authorized Super Administrator or department staff account and RBAC permissions.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "format": "email", "maxLength": 254 },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "phone": { "type": "string", "maxLength": 32 },
+        "emailVerified": { "type": "boolean" },
+        "phoneVerified": { "type": "boolean" },
+        "primaryDepartment": {
+          "type": "string",
+          "enum": [
+            "all",
+            "user_management",
+            "client_management",
+            "task_monitoring",
+            "bids_assignments",
+            "finance_control",
+            "api_management",
+            "activity_logs",
+            "platform_settings"
+          ]
+        },
+        "role": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "status": { "type": "string", "enum": ["active", "suspended", "deactivated", "revoked"] },
+        "departments": { "type": "array" },
+        "actions": { "type": "array" },
+        "invitationId": { "type": "string", "maxLength": 128 },
+        "sessionRevokedAt": { "type": "string", "maxLength": 64 },
+        "lastLoginAt": { "type": "string", "maxLength": 64 },
+        "mfaEnabled": { "type": "boolean" },
+        "failedAttempts": { "type": "number" },
+        "lockedUntil": { "type": "string", "maxLength": 64 },
+        "photoUrl": { "type": "string", "maxLength": 500 },
+        "notificationPrefs": { "type": "object" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "createdBy": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["uid", "email", "displayName", "role", "status", "departments", "actions", "createdAt", "updatedAt"]
+    },
+    "StaffInvitation": {
+      "title": "StaffInvitation",
+      "description": "Single-use, time-limited, department-locked staff invitation with hashed token.",
+      "type": "object",
+      "properties": {
+        "invitationId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "tokenHash": { "type": "string", "minLength": 32, "maxLength": 128 },
+        "fullName": { "type": "string", "minLength": 1, "maxLength": 140 },
+        "email": { "type": "string", "format": "email", "maxLength": 254 },
+        "phone": { "type": "string", "maxLength": 32 },
+        "department": {
+          "type": "string",
+          "enum": [
+            "user_management",
+            "client_management",
+            "task_monitoring",
+            "bids_assignments",
+            "finance_control",
+            "api_management",
+            "activity_logs",
+            "platform_settings"
+          ]
+        },
+        "departmentRole": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "permissions": { "type": "array" },
+        "status": { "type": "string", "enum": ["pending", "accepted", "expired", "revoked"] },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "emailDeliveryStatus": { "type": "string", "enum": ["sent", "not_configured", "failed"] },
+        "acceptedByUid": { "type": "string", "maxLength": 128 },
+        "acceptedAt": { "type": "string", "maxLength": 64 },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["invitationId", "tokenHash", "fullName", "email", "phone", "department", "departmentRole", "permissions", "status", "expiresAt", "createdBy", "createdAt", "updatedAt"]
+    },
+    "DepartmentMessage": {
+      "title": "DepartmentMessage",
+      "description": "Internal department-scoped staff communication message.",
+      "type": "object",
+      "properties": {
+        "messageId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "department": { "type": "string", "maxLength": 64 },
+        "senderUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "senderName": { "type": "string", "maxLength": 120 },
+        "senderRole": { "type": "string", "maxLength": 80 },
+        "body": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["messageId", "department", "senderUid", "senderName", "body", "createdAt"]
+    },
+    "StaffLoginHistory": {
+      "title": "StaffLoginHistory",
+      "description": "Immutable staff authentication and session event record.",
+      "type": "object",
+      "properties": {
+        "loginId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 254 },
+        "department": { "type": "string", "maxLength": 64 },
+        "outcome": { "type": "string", "enum": ["success", "denied", "locked", "session_revoked"] },
+        "detail": { "type": "string", "maxLength": 400 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["loginId", "email", "outcome", "createdAt"]
+    },
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "Registered platform user or worker profile.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "format": "email", "maxLength": 254 },
+        "fullName": { "type": "string", "minLength": 1, "maxLength": 140 },
+        "phone": { "type": "string", "maxLength": 32 },
+        "accountType": { "type": "string", "enum": ["worker", "client", "hybrid"] },
+        "status": { "type": "string", "enum": ["pending", "active", "suspended", "banned", "recovery_requested"] },
+        "verificationStatus": { "type": "string", "enum": ["unverified", "pending", "verified", "rejected"] },
+        "role": { "type": "string", "maxLength": 64 },
+        "skills": { "type": "array" },
+        "reportCount": { "type": "number" },
+        "lastLoginAt": { "type": "string", "maxLength": 64 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "fullName", "accountType", "status", "verificationStatus", "createdAt", "updatedAt"]
+    },
+    "ClientAccount": {
+      "title": "ClientAccount",
+      "description": "Dedicated client and business account record.",
+      "type": "object",
+      "properties": {
+        "clientId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 140 },
+        "companyName": { "type": "string", "maxLength": 160 },
+        "email": { "type": "string", "format": "email", "maxLength": 254 },
+        "accountTier": { "type": "string", "enum": ["individual", "business", "enterprise"] },
+        "status": { "type": "string", "enum": ["pending", "active", "restricted", "suspended"] },
+        "verificationStatus": { "type": "string", "enum": ["unverified", "pending", "verified", "rejected"] },
+        "totalProjects": { "type": "number" },
+        "openComplaints": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["clientId", "ownerUid", "name", "email", "accountTier", "status", "verificationStatus", "createdAt", "updatedAt"]
+    },
+    "TaskRecord": {
+      "title": "TaskRecord",
+      "description": "Task posted by a client for worker bidding.",
+      "type": "object",
+      "properties": {
+        "taskId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "clientId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "clientName": { "type": "string", "maxLength": 140 },
+        "title": { "type": "string", "minLength": 2, "maxLength": 200 },
+        "description": { "type": "string", "maxLength": 5000 },
+        "category": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "budgetKes": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending", "published", "active", "completed", "rejected", "reported", "removed"] },
+        "deadline": { "type": "string", "maxLength": 64 },
+        "reportReason": { "type": "string", "maxLength": 500 },
+        "moderationNotes": { "type": "string", "maxLength": 1000 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["taskId", "clientId", "title", "category", "budgetKes", "status", "createdAt", "updatedAt"]
+    },
+    "TaskCategory": {
+      "title": "TaskCategory",
+      "description": "Platform task category configuration.",
+      "type": "object",
+      "properties": {
+        "categoryId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "slug": { "type": "string", "minLength": 2, "maxLength": 80, "pattern": "^[a-z0-9\\-]+$" },
+        "description": { "type": "string", "maxLength": 500 },
+        "active": { "type": "boolean" },
+        "minBudgetKes": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["categoryId", "name", "slug", "active", "createdAt", "updatedAt"]
+    },
+    "BidRecord": {
+      "title": "BidRecord",
+      "description": "Worker bid submitted against a task.",
+      "type": "object",
+      "properties": {
+        "bidId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "taskId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "taskTitle": { "type": "string", "maxLength": 200 },
+        "workerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "workerName": { "type": "string", "maxLength": 140 },
+        "clientId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "amountKes": { "type": "number" },
+        "proposal": { "type": "string", "maxLength": 3000 },
+        "status": { "type": "string", "enum": ["pending", "accepted", "rejected", "withdrawn"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["bidId", "taskId", "workerUid", "clientId", "amountKes", "status", "createdAt", "updatedAt"]
+    },
+    "AssignmentRecord": {
+      "title": "AssignmentRecord",
+      "description": "Awarded task assignment, submissions, revisions, and disputes.",
+      "type": "object",
+      "properties": {
+        "assignmentId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "taskId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "taskTitle": { "type": "string", "maxLength": 200 },
+        "bidId": { "type": "string", "maxLength": 128 },
+        "workerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "workerName": { "type": "string", "maxLength": 140 },
+        "clientId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "agreedAmountKes": { "type": "number" },
+        "status": { "type": "string", "enum": ["active", "submitted", "revision_requested", "approved", "completed", "disputed", "cancelled"] },
+        "deadline": { "type": "string", "maxLength": 64 },
+        "submissionUrl": { "type": "string", "maxLength": 500 },
+        "disputeReason": { "type": "string", "maxLength": 1000 },
+        "adminResolutionNote": { "type": "string", "maxLength": 1000 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["assignmentId", "taskId", "workerUid", "clientId", "agreedAmountKes", "status", "createdAt", "updatedAt"]
+    },
+    "WorkSubmission": {
+      "title": "WorkSubmission",
+      "description": "Worker deliverable submission linked to an active assignment.",
+      "type": "object",
+      "properties": {
+        "submissionId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "assignmentId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "taskId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "taskTitle": { "type": "string", "maxLength": 200 },
+        "workerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "workerName": { "type": "string", "maxLength": 140 },
+        "clientId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "summary": { "type": "string", "maxLength": 4000 },
+        "deliverableUrl": { "type": "string", "maxLength": 500 },
+        "revisionCount": { "type": "number" },
+        "status": { "type": "string", "enum": ["submitted", "revision_requested", "approved", "rejected"] },
+        "reviewerNote": { "type": "string", "maxLength": 1000 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["submissionId", "assignmentId", "taskId", "workerUid", "clientId", "status", "createdAt", "updatedAt"]
+    },
+    "DisputeRecord": {
+      "title": "DisputeRecord",
+      "description": "Formal client or worker assignment dispute for staff arbitration.",
+      "type": "object",
+      "properties": {
+        "disputeId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "assignmentId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "taskId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "taskTitle": { "type": "string", "maxLength": 200 },
+        "openedByUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "openedByRole": { "type": "string", "enum": ["client", "worker"] },
+        "againstUid": { "type": "string", "maxLength": 128 },
+        "reason": { "type": "string", "minLength": 2, "maxLength": 2000 },
+        "evidenceUrl": { "type": "string", "maxLength": 500 },
+        "status": { "type": "string", "enum": ["open", "under_review", "resolved_client", "resolved_worker", "dismissed"] },
+        "resolutionNote": { "type": "string", "maxLength": 1000 },
+        "resolvedBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["disputeId", "assignmentId", "taskId", "openedByUid", "openedByRole", "reason", "status", "createdAt", "updatedAt"]
+    },
+    "WalletRecord": {
+      "title": "WalletRecord",
+      "description": "Worker KES wallet ledger summary.",
+      "type": "object",
+      "properties": {
+        "walletId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerName": { "type": "string", "maxLength": 140 },
+        "currency": { "type": "string", "enum": ["KES"] },
+        "availableBalanceKes": { "type": "number" },
+        "pendingEscrowKes": { "type": "number" },
+        "totalEarnedKes": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["walletId", "ownerUid", "currency", "availableBalanceKes", "pendingEscrowKes", "totalEarnedKes", "updatedAt"]
+    },
+    "TransactionRecord": {
+      "title": "TransactionRecord",
+      "description": "Verified financial transaction in Kenyan Shillings (KES).",
+      "type": "object",
+      "properties": {
+        "transactionId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "type": { "type": "string", "enum": ["client_payment", "deposit", "escrow_release", "platform_fee", "withdrawal_payout", "refund"] },
+        "amountKes": { "type": "number" },
+        "platformFeeKes": { "type": "number" },
+        "currency": { "type": "string", "enum": ["KES"] },
+        "provider": { "type": "string", "maxLength": 64 },
+        "providerRef": { "type": "string", "maxLength": 128 },
+        "status": { "type": "string", "enum": ["pending", "verified", "failed", "reversed"] },
+        "reconciled": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["transactionId", "userId", "type", "amountKes", "currency", "status", "createdAt"]
+    },
+    "WithdrawalRequest": {
+      "title": "WithdrawalRequest",
+      "description": "Worker payout withdrawal request in KES.",
+      "type": "object",
+      "properties": {
+        "withdrawalId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "workerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "workerName": { "type": "string", "maxLength": 140 },
+        "amountKes": { "type": "number" },
+        "currency": { "type": "string", "enum": ["KES"] },
+        "destinationType": { "type": "string", "enum": ["mpesa", "bank"] },
+        "destinationMasked": { "type": "string", "maxLength": 64 },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected", "paid"] },
+        "reviewedBy": { "type": "string", "maxLength": 128 },
+        "reviewNote": { "type": "string", "maxLength": 500 },
+        "idempotencyKey": { "type": "string", "maxLength": 128 },
+        "providerRef": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["withdrawalId", "workerUid", "amountKes", "currency", "destinationType", "status", "createdAt", "updatedAt"]
+    },
+    "ApiKeyRecord": {
+      "title": "ApiKeyRecord",
+      "description": "Hashed API key credential metadata for connected public websites.",
+      "type": "object",
+      "properties": {
+        "keyId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "prefix": { "type": "string", "maxLength": 24 },
+        "keyHash": { "type": "string", "minLength": 32, "maxLength": 128 },
+        "scopes": { "type": "array" },
+        "status": { "type": "string", "enum": ["active", "inactive", "revoked", "expired"] },
+        "rateLimitPerMin": { "type": "number" },
+        "expiresAt": { "type": "string", "maxLength": 64 },
+        "lastUsedAt": { "type": "string", "maxLength": 64 },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["keyId", "name", "prefix", "keyHash", "scopes", "status", "rateLimitPerMin", "createdBy", "createdAt", "updatedAt"]
+    },
+    "ConnectedApp": {
+      "title": "ConnectedApp",
+      "description": "Connected public website or external service application.",
+      "type": "object",
+      "properties": {
+        "appId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "websiteUrl": { "type": "string", "maxLength": 300 },
+        "apiBaseUrl": { "type": "string", "maxLength": 300 },
+        "allowedOrigins": { "type": "array" },
+        "status": { "type": "string", "enum": ["connected", "paused", "error"] },
+        "lastSuccessAt": { "type": "string", "maxLength": 64 },
+        "lastFailureAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["appId", "name", "websiteUrl", "allowedOrigins", "status", "updatedAt"]
+    },
+    "WebhookConfig": {
+      "title": "WebhookConfig",
+      "description": "Outbound webhook endpoint configuration.",
+      "type": "object",
+      "properties": {
+        "webhookId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "url": { "type": "string", "maxLength": 300 },
+        "events": { "type": "array" },
+        "active": { "type": "boolean" },
+        "secretHint": { "type": "string", "maxLength": 24 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["webhookId", "url", "events", "active", "createdAt", "updatedAt"]
+    },
+    "ApiLogRecord": {
+      "title": "ApiLogRecord",
+      "description": "API request and response telemetry record.",
+      "type": "object",
+      "properties": {
+        "logId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "method": { "type": "string", "maxLength": 12 },
+        "path": { "type": "string", "maxLength": 200 },
+        "statusCode": { "type": "number" },
+        "keyId": { "type": "string", "maxLength": 128 },
+        "origin": { "type": "string", "maxLength": 200 },
+        "durationMs": { "type": "number" },
+        "correlationId": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["logId", "method", "path", "statusCode", "createdAt"]
+    },
+    "ActivityLog": {
+      "title": "ActivityLog",
+      "description": "Immutable administrative, user, financial, and system audit record.",
+      "type": "object",
+      "properties": {
+        "eventId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "category": { "type": "string", "enum": ["system", "admin", "user", "worker", "client", "login", "security", "api", "financial", "account_change"] },
+        "actorId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "actorEmail": { "type": "string", "maxLength": 254 },
+        "actorRole": { "type": "string", "maxLength": 64 },
+        "department": { "type": "string", "maxLength": 64 },
+        "action": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "affectedRecord": { "type": "string", "maxLength": 200 },
+        "result": { "type": "string", "enum": ["success", "denied", "failed"] },
+        "correlationId": { "type": "string", "maxLength": 128 },
+        "metadata": { "type": "object" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["eventId", "category", "actorId", "actorRole", "action", "affectedRecord", "result", "createdAt"]
+    },
+    "SecurityEvent": {
+      "title": "SecurityEvent",
+      "description": "Immutable security alert or authentication anomaly record.",
+      "type": "object",
+      "properties": {
+        "eventId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "severity": { "type": "string", "enum": ["info", "warning", "critical"] },
+        "eventType": { "type": "string", "maxLength": 120 },
+        "actorEmail": { "type": "string", "maxLength": 254 },
+        "detail": { "type": "string", "maxLength": 1000 },
+        "resolved": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["eventId", "severity", "eventType", "detail", "createdAt"]
+    },
+    "PlatformSetting": {
+      "title": "PlatformSetting",
+      "description": "Platform configuration section stored in Firestore.",
+      "type": "object",
+      "properties": {
+        "sectionId": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "platformName": { "type": "string", "maxLength": 120 },
+        "tagline": { "type": "string", "maxLength": 300 },
+        "primaryColor": { "type": "string", "maxLength": 16 },
+        "accentColor": { "type": "string", "maxLength": 16 },
+        "logoUrl": { "type": "string", "maxLength": 500 },
+        "maintenanceMode": { "type": "boolean" },
+        "platformFeePercent": { "type": "number" },
+        "minWithdrawalKes": { "type": "number" },
+        "allowWorkerRegistration": { "type": "boolean" },
+        "allowClientRegistration": { "type": "boolean" },
+        "requireTaskModeration": { "type": "boolean" },
+        "termsText": { "type": "string", "maxLength": 20000 },
+        "privacyText": { "type": "string", "maxLength": 20000 },
+        "officialEmail": { "type": "string", "format": "email", "maxLength": 254 },
+        "senderDisplayName": { "type": "string", "maxLength": 120 },
+        "replyToEmail": { "type": "string", "format": "email", "maxLength": 254 },
+        "config": { "type": "object" },
+        "updatedBy": { "type": "string", "maxLength": 128 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["sectionId", "updatedAt"]
+    },
+    "EmailLogRecord": {
+      "title": "EmailLogRecord",
+      "description": "Transactional email delivery and failure audit record.",
+      "type": "object",
+      "properties": {
+        "emailLogId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "scope": { "type": "string", "enum": ["public_website", "control_centre"] },
+        "eventType": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "recipientEmail": { "type": "string", "format": "email", "maxLength": 254 },
+        "subject": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "bodyPreview": { "type": "string", "maxLength": 1000 },
+        "fromAddress": { "type": "string", "maxLength": 254 },
+        "replyToAddress": { "type": "string", "maxLength": 254 },
+        "provider": { "type": "string", "maxLength": 80 },
+        "providerMessageId": { "type": "string", "maxLength": 160 },
+        "status": { "type": "string", "enum": ["sent", "failed", "not_configured"] },
+        "errorDetail": { "type": "string", "maxLength": 800 },
+        "retryCount": { "type": "number" },
+        "triggeredByUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["emailLogId", "scope", "eventType", "recipientEmail", "subject", "fromAddress", "replyToAddress", "provider", "status", "createdAt", "updatedAt"]
+    },
+    "Announcement": {
+      "title": "Announcement",
+      "description": "Platform-wide administrative announcement.",
+      "type": "object",
+      "properties": {
+        "announcementId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "minLength": 2, "maxLength": 200 },
+        "body": { "type": "string", "minLength": 2, "maxLength": 5000 },
+        "audience": { "type": "string", "enum": ["all", "workers", "clients", "admins"] },
+        "active": { "type": "boolean" },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["announcementId", "title", "body", "audience", "active", "createdBy", "createdAt"]
+    },
+    "SupportTicket": {
+      "title": "SupportTicket",
+      "description": "Client or worker support and complaint ticket.",
+      "type": "object",
+      "properties": {
+        "ticketId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "requesterUid": { "type": "string", "maxLength": 128 },
+        "requesterType": { "type": "string", "enum": ["client", "worker"] },
+        "requesterName": { "type": "string", "maxLength": 140 },
+        "subject": { "type": "string", "maxLength": 200 },
+        "description": { "type": "string", "maxLength": 4000 },
+        "priority": { "type": "string", "enum": ["low", "medium", "high", "urgent"] },
+        "status": { "type": "string", "enum": ["open", "in_progress", "resolved", "closed"] },
+        "assignedAdmin": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ticketId", "requesterType", "subject", "priority", "status", "createdAt", "updatedAt"]
+    },
+    "AdminNotification": {
+      "title": "AdminNotification",
+      "description": "Notification centre alert for administrators and department workplaces.",
+      "type": "object",
+      "properties": {
+        "notificationId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "department": { "type": "string", "maxLength": 64 },
+        "type": { "type": "string", "enum": ["user_registration", "client_registration", "new_task", "reported_account", "dispute", "withdrawal", "failed_payment", "api_failure", "security_alert", "system_error", "staff_invitation"] },
+        "title": { "type": "string", "maxLength": 160 },
+        "message": { "type": "string", "maxLength": 600 },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["notificationId", "type", "title", "message", "read", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/admin_users/{uid}": {
+      "schema": { "$ref": "#/entities/AdminUser" },
+      "description": "Authorized Super Admin and department staff accounts."
+    },
+    "/staff_invitations/{invitationId}": {
+      "schema": { "$ref": "#/entities/StaffInvitation" },
+      "description": "Single-use, time-limited staff invitation tokens."
+    },
+    "/department_messages/{messageId}": {
+      "schema": { "$ref": "#/entities/DepartmentMessage" },
+      "description": "Internal department-scoped staff communications."
+    },
+    "/staff_login_history/{loginId}": {
+      "schema": { "$ref": "#/entities/StaffLoginHistory" },
+      "description": "Staff authentication and session revocation logs."
+    },
+    "/admin_roles/{roleId}": {
+      "schema": { "type": "object", "title": "AdminRole", "description": "Role matrix definition", "properties": {} },
+      "description": "Role definitions and default permission sets."
+    },
+    "/admin_permissions/{permId}": {
+      "schema": { "type": "object", "title": "AdminPermission", "description": "Permission override", "properties": {} },
+      "description": "Granular administrator permission overrides."
+    },
+    "/users/{uid}": {
+      "schema": { "$ref": "#/entities/UserAccount" },
+      "description": "Registered platform user and worker profiles."
+    },
+    "/clients/{clientId}": {
+      "schema": { "$ref": "#/entities/ClientAccount" },
+      "description": "Dedicated client and business accounts."
+    },
+    "/tasks/{taskId}": {
+      "schema": { "$ref": "#/entities/TaskRecord" },
+      "description": "Tasks posted by clients."
+    },
+    "/task_categories/{categoryId}": {
+      "schema": { "$ref": "#/entities/TaskCategory" },
+      "description": "Configured task categories."
+    },
+    "/bids/{bidId}": {
+      "schema": { "$ref": "#/entities/BidRecord" },
+      "description": "Bids submitted by workers on tasks."
+    },
+    "/assignments/{assignmentId}": {
+      "schema": { "$ref": "#/entities/AssignmentRecord" },
+      "description": "Active and completed work assignments."
+    },
+    "/work_submissions/{submissionId}": {
+      "schema": { "$ref": "#/entities/WorkSubmission" },
+      "description": "Worker deliverable submissions and revision history."
+    },
+    "/disputes/{disputeId}": {
+      "schema": { "$ref": "#/entities/DisputeRecord" },
+      "description": "Client and worker assignment disputes."
+    },
+    "/wallets/{walletId}": {
+      "schema": { "$ref": "#/entities/WalletRecord" },
+      "description": "Worker KES wallets."
+    },
+    "/transactions/{transactionId}": {
+      "schema": { "$ref": "#/entities/TransactionRecord" },
+      "description": "Verified KES payment and deposit transactions."
+    },
+    "/withdrawals/{withdrawalId}": {
+      "schema": { "$ref": "#/entities/WithdrawalRequest" },
+      "description": "Worker withdrawal requests in KES."
+    },
+    "/api_keys/{keyId}": {
+      "schema": { "$ref": "#/entities/ApiKeyRecord" },
+      "description": "Hashed API credentials for connected applications."
+    },
+    "/connected_apps/{appId}": {
+      "schema": { "$ref": "#/entities/ConnectedApp" },
+      "description": "Connected public websites and origin configuration."
+    },
+    "/webhooks/{webhookId}": {
+      "schema": { "$ref": "#/entities/WebhookConfig" },
+      "description": "Configured outbound webhooks."
+    },
+    "/api_logs/{logId}": {
+      "schema": { "$ref": "#/entities/ApiLogRecord" },
+      "description": "API request and error logs."
+    },
+    "/activity_logs/{eventId}": {
+      "schema": { "$ref": "#/entities/ActivityLog" },
+      "description": "Immutable administrative and system audit log."
+    },
+    "/security_events/{eventId}": {
+      "schema": { "$ref": "#/entities/SecurityEvent" },
+      "description": "Security and login anomaly logs."
+    },
+    "/platform_settings/{sectionId}": {
+      "schema": { "$ref": "#/entities/PlatformSetting" },
+      "description": "Platform configuration documents including public website settings."
+    },
+    "/announcements/{announcementId}": {
+      "schema": { "$ref": "#/entities/Announcement" },
+      "description": "Platform announcements."
+    },
+    "/support_tickets/{ticketId}": {
+      "schema": { "$ref": "#/entities/SupportTicket" },
+      "description": "Client and worker support cases."
+    },
+    "/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/AdminNotification" },
+      "description": "Administrator notification centre items."
+    },
+    "/messages/{messageId}": {
+      "schema": { "type": "object", "title": "Message", "description": "Restricted conversation message", "properties": {} },
+      "description": "Restricted private platform messages."
+    },
+    "/conversations/{conversationId}": {
+      "schema": { "type": "object", "title": "Conversation", "description": "Restricted conversation metadata", "properties": {} },
+      "description": "Restricted conversation threads."
+    },
+    "/system_events/{eventId}": {
+      "schema": { "type": "object", "title": "SystemEvent", "description": "System health event", "properties": {} },
+      "description": "Backend and service health events."
+    },
+    "/email_logs/{emailLogId}": {
+      "schema": { "$ref": "#/entities/EmailLogRecord" },
+      "description": "Email delivery and failure records across Public Website and Central Control Centre."
+    }
+  }
+}
