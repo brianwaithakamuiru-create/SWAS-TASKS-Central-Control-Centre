@@ -1,6 +1,6 @@
 export const OFFICIAL_PLATFORM_NAME = 'SWAS TASKS';
 export const OFFICIAL_PLATFORM_EMAIL = 'swastaskorg@gmail.com';
-export const OFFICIAL_SENDER_DISPLAY_NAME = 'SWAS TASKS';
+export const OFFICIAL_SENDER_DISPLAY_NAME = 'SWAS TASKS Organization';
 export const OFFICIAL_REPLY_TO_EMAIL = 'swastaskorg@gmail.com';
 
 export type EmailScope = 'public_website' | 'control_centre';

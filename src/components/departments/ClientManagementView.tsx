@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   Download,
   FileBarChart2,
+  Mail,
   Search,
   Ticket,
   X,
@@ -19,6 +20,7 @@ import {
 import type {
   ActivityLog,
   ClientAccount,
+  EmailTemplateRecord,
   SupportTicket,
   TaskRecord,
 } from '../../types/admin';
@@ -26,6 +28,7 @@ import { ConfirmModal } from '../common/ConfirmModal';
 import { EmptyState } from '../common/EmptyState';
 import { StatusText } from '../common/StatusText';
 import { TablePagination, usePaginatedList } from '../common/TablePagination';
+import { DepartmentEmailModal, type DepartmentEmailTarget } from './DepartmentEmailModal';
 
 interface ClientManagementViewProps {
   subId: string;
@@ -34,6 +37,7 @@ interface ClientManagementViewProps {
   tasks: TaskRecord[];
   tickets: SupportTicket[];
   activityLogs: ActivityLog[];
+  emailTemplates?: EmailTemplateRecord[];
 }
 
 export function ClientManagementView({
@@ -43,13 +47,16 @@ export function ClientManagementView({
   tasks,
   tickets,
   activityLogs,
+  emailTemplates = [],
 }: ClientManagementViewProps) {
-  const { adminProfile, hasAction } = useAuth();
+  const { adminProfile, hasAction, hasEmailPermission } = useAuth();
+  const canEmail = hasEmailPermission('email.compose');
   const subdepartments =
     EIGHT_DEPARTMENTS.find((d) => d.id === 'client_management')?.subdepartments || [];
 
   const [search, setSearch] = useState('');
   const [selectedClient, setSelectedClient] = useState<ClientAccount | null>(null);
+  const [emailTarget, setEmailTarget] = useState<DepartmentEmailTarget | null>(null);
   const [feedback, setFeedback] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
   const [confirmState, setConfirmState] = useState<{
     open: boolean;
@@ -686,6 +693,32 @@ export function ClientManagementView({
                               Reactivate
                             </button>
                           ) : null}
+                          {canEmail && c.email ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setEmailTarget({
+                                  name: c.name,
+                                  email: c.email,
+                                  uid: c.ownerUid || c.clientId,
+                                  recipientType: 'client',
+                                  sourceRecord: `clients/${c.clientId}`,
+                                  vars: {
+                                    client_name: c.name,
+                                    first_name: c.name.split(' ')[0] || c.name,
+                                    email: c.email,
+                                    account_id: c.clientId,
+                                    account_status: c.status,
+                                    company_name: c.companyName || 'SWAS TASKS',
+                                  },
+                                })
+                              }
+                              className="inline-flex items-center gap-1 text-xs font-medium text-[#1265C8] hover:underline"
+                            >
+                              <Mail className="w-3 h-3" />
+                              Email
+                            </button>
+                          ) : null}
                         </td>
                       </tr>
                     ))}
@@ -749,6 +782,34 @@ export function ClientManagementView({
                 </dd>
               </div>
             </dl>
+            {canEmail && selectedClient.email ? (
+              <div className="mt-4">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setEmailTarget({
+                      name: selectedClient.name,
+                      email: selectedClient.email,
+                      uid: selectedClient.ownerUid || selectedClient.clientId,
+                      recipientType: 'client',
+                      sourceRecord: `clients/${selectedClient.clientId}`,
+                      vars: {
+                        client_name: selectedClient.name,
+                        first_name: selectedClient.name.split(' ')[0] || selectedClient.name,
+                        email: selectedClient.email,
+                        account_id: selectedClient.clientId,
+                        account_status: selectedClient.status,
+                        company_name: selectedClient.companyName || 'SWAS TASKS',
+                      },
+                    })
+                  }
+                  className="inline-flex items-center gap-1.5 px-3 py-2 typo-button text-white bg-[#1265C8] hover:bg-[#102B50] rounded-md"
+                >
+                  <Mail className="w-4 h-4" />
+                  Email Client
+                </button>
+              </div>
+            ) : null}
             <div className="mt-6">
               <h4 className="typo-card-heading text-[#75869D] mb-2">
                 Tasks Posted by Client ({selectedClientTasks.length})
@@ -782,6 +843,14 @@ export function ClientManagementView({
           onConfirm={confirmState.onConfirm}
         />
       ) : null}
+
+      <DepartmentEmailModal
+        open={Boolean(emailTarget)}
+        onClose={() => setEmailTarget(null)}
+        department="client_management"
+        initialRecipient={emailTarget}
+        templates={emailTemplates}
+      />
     </div>
   );
 }

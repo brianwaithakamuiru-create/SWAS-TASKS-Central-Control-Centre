@@ -11,6 +11,7 @@ import {
 } from './server/middleware/security.ts';
 import { renderSwaggerHtml } from './server/openapi.ts';
 import { v1Router } from './server/routes/v1.ts';
+import { startEmailSchedulerLoop } from './server/services/messaging.ts';
 
 async function bootstrap() {
   const app = express();
@@ -49,6 +50,7 @@ async function bootstrap() {
   }
 
   app.listen(serverConfig.port, '0.0.0.0', () => {
+    startEmailSchedulerLoop(30_000);
     console.log(`SWAS TASKS Central Control Centre listening on http://0.0.0.0:${serverConfig.port}`);
   });
 }

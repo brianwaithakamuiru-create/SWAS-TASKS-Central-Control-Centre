@@ -70,6 +70,12 @@ service cloud.firestore {
         || (hasActiveAdminRecord() && 'manage' in adminData().actions && 'user_management' in adminData().departments);
     }
 
+    function canManageDeptInvitations(dept) {
+      return isSuperAdmin()
+        || canManageStaff()
+        || (hasActiveAdminRecord() && hasAction('manage') && dept in adminData().departments);
+    }
+
     function isOwner(uid) {
       return isEmailVerified() && request.auth.uid == uid;
     }
@@ -77,35 +83,110 @@ service cloud.firestore {
     // --- Validation Blueprints ---
     function isValidAdminUser(data) {
       return data.keys().hasAll(['uid', 'email', 'displayName', 'role', 'status', 'departments', 'actions', 'createdAt', 'updatedAt'])
-        && data.keys().hasOnly(['uid', 'email', 'displayName', 'phone', 'emailVerified', 'phoneVerified', 'primaryDepartment', 'role', 'status', 'departments', 'actions', 'invitationId', 'sessionRevokedAt', 'lastLoginAt', 'mfaEnabled', 'failedAttempts', 'lockedUntil', 'photoUrl', 'notificationPrefs', 'createdAt', 'updatedAt', 'createdBy'])
+        && data.keys().hasOnly([
+          'uid', 'email', 'displayName', 'phone', 'emailVerified', 'phoneVerified',
+          'primaryDepartment', 'role', 'status', 'verificationStatus', 'accessStatus',
+          'departments', 'actions', 'invitationId', 'invitationType', 'registeredAt',
+          'approvedBy', 'approvedByName', 'approvedAt', 'rejectedBy', 'rejectedByName',
+          'rejectedAt', 'rejectionReason', 'sessionRevokedAt', 'lastLoginAt',
+          'mfaEnabled', 'failedAttempts', 'lockedUntil', 'photoUrl', 'notificationPrefs',
+          'createdAt', 'updatedAt', 'createdBy'
+        ])
         && isValidId(data.uid)
         && data.email is string && data.email.size() >= 3 && data.email.size() <= 254
         && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120
         && data.role is string && data.role.size() >= 2 && data.role.size() <= 80
-        && data.status in ['active', 'suspended', 'deactivated', 'revoked']
-        && data.departments is list && data.departments.size() <= 10
-        && data.actions is list && data.actions.size() <= 12
+        && data.status in ['pending_verification', 'active', 'rejected', 'suspended', 'deactivated', 'revoked']
+        && (!('verificationStatus' in data) || data.verificationStatus in ['pending_verification', 'approved', 'rejected'])
+        && (!('accessStatus' in data) || data.accessStatus in ['inactive', 'active', 'blocked'])
+        && (!('invitationType' in data) || data.invitationType in ['staff_account', 'department_member', 'department_admin'])
+        && (!('rejectionReason' in data) || (data.rejectionReason is string && data.rejectionReason.size() <= 500))
+        && data.departments is list && data.departments.size() <= 12
+        && (data.departments.size() == 0 || data.departments[0] is string)
+        && data.actions is list && data.actions.size() <= 24
+        && (data.actions.size() == 0 || data.actions[0] is string)
         && (!('photoUrl' in data) || (data.photoUrl is string && data.photoUrl.size() <= 500))
         && data.createdAt is string && data.createdAt.size() <= 64
         && data.updatedAt is string && data.updatedAt.size() <= 64;
     }
 
     function isValidStaffInvitation(data) {
-      return data.keys().hasAll(['invitationId', 'tokenHash', 'fullName', 'email', 'phone', 'department', 'departmentRole', 'permissions', 'status', 'expiresAt', 'createdBy', 'createdAt', 'updatedAt'])
-        && data.keys().hasOnly(['invitationId', 'tokenHash', 'fullName', 'email', 'phone', 'department', 'departmentRole', 'permissions', 'status', 'expiresAt', 'emailDeliveryStatus', 'acceptedByUid', 'acceptedAt', 'createdBy', 'createdAt', 'updatedAt'])
+      return data.keys().hasAll(['invitationId', 'tokenHash', 'department', 'departmentRole', 'permissions', 'status', 'expiresAt', 'createdBy', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly([
+          'invitationId', 'shortCode', 'codeHash', 'tokenHash', 'invitationType',
+          'fullName', 'email', 'emailRestricted', 'phone', 'requiresPhone', 'singleUse',
+          'department', 'departmentRole', 'permissions', 'shareMessage', 'inviterName',
+          'status', 'expiresAt', 'openedAt', 'openedCount', 'acceptedCount',
+          'emailDeliveryStatus', 'acceptedByUid', 'acceptedByEmail', 'acceptedAt',
+          'revokedBy', 'revokedAt', 'revokeReason', 'createdBy', 'createdAt', 'updatedAt'
+        ])
         && isValidId(data.invitationId)
+        && (!('shortCode' in data) || (data.shortCode is string && data.shortCode.size() >= 6 && data.shortCode.size() <= 32))
+        && (!('codeHash' in data) || (data.codeHash is string && data.codeHash.size() >= 32 && data.codeHash.size() <= 128))
         && data.tokenHash is string && data.tokenHash.size() >= 32 && data.tokenHash.size() <= 128
-        && data.fullName is string && data.fullName.size() >= 1 && data.fullName.size() <= 140
-        && data.email is string && data.email.size() >= 3 && data.email.size() <= 254
-        && data.phone is string && data.phone.size() >= 4 && data.phone.size() <= 32
+        && (!('invitationType' in data) || data.invitationType in ['staff_account', 'department_member', 'department_admin'])
+        && (!('fullName' in data) || (data.fullName is string && data.fullName.size() <= 140))
+        && (!('email' in data) || (data.email is string && data.email.size() <= 254))
+        && (!('emailRestricted' in data) || data.emailRestricted is bool)
+        && (!('phone' in data) || (data.phone is string && data.phone.size() <= 32))
+        && (!('requiresPhone' in data) || data.requiresPhone is bool)
+        && (!('singleUse' in data) || data.singleUse is bool)
         && data.department in ['user_management', 'client_management', 'task_monitoring', 'bids_assignments', 'finance_control', 'api_management', 'activity_logs', 'platform_settings']
         && data.departmentRole is string && data.departmentRole.size() >= 2 && data.departmentRole.size() <= 80
-        && data.permissions is list && data.permissions.size() >= 1 && data.permissions.size() <= 12
-        && data.status in ['pending', 'accepted', 'expired', 'revoked']
+        && data.permissions is list && data.permissions.size() >= 1 && data.permissions.size() <= 24
+        && (!('shareMessage' in data) || (data.shareMessage is string && data.shareMessage.size() <= 1000))
+        && (!('inviterName' in data) || (data.inviterName is string && data.inviterName.size() <= 140))
+        && data.status in ['pending', 'opened', 'accepted', 'expired', 'revoked']
         && data.expiresAt is string && data.expiresAt.size() <= 64
         && data.createdBy is string && data.createdBy.size() <= 128
         && data.createdAt is string && data.createdAt.size() <= 64
         && data.updatedAt is string && data.updatedAt.size() <= 64;
+    }
+
+    function isValidInvitationLink(data) {
+      return data.keys().hasAll(['codeHash', 'invitationId', 'department', 'departmentRole', 'emailRestricted', 'singleUse', 'status', 'expiresAt', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly([
+          'codeHash', 'invitationId', 'invitationType', 'department', 'departmentLabel',
+          'departmentRole', 'inviterName', 'emailRestricted', 'requiresPhone', 'singleUse',
+          'status', 'expiresAt', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.codeHash)
+        && isValidId(data.invitationId)
+        && (!('invitationType' in data) || data.invitationType in ['staff_account', 'department_member', 'department_admin'])
+        && data.department in ['user_management', 'client_management', 'task_monitoring', 'bids_assignments', 'finance_control', 'api_management', 'activity_logs', 'platform_settings']
+        && (!('departmentLabel' in data) || (data.departmentLabel is string && data.departmentLabel.size() <= 120))
+        && data.departmentRole is string && data.departmentRole.size() >= 2 && data.departmentRole.size() <= 80
+        && (!('inviterName' in data) || (data.inviterName is string && data.inviterName.size() <= 140))
+        && data.emailRestricted is bool
+        && (!('requiresPhone' in data) || data.requiresPhone is bool)
+        && data.singleUse is bool
+        && data.status in ['pending', 'opened', 'accepted', 'expired', 'revoked']
+        && data.expiresAt is string && data.expiresAt.size() <= 64
+        && data.createdAt is string && data.createdAt.size() <= 64
+        && data.updatedAt is string && data.updatedAt.size() <= 64;
+    }
+
+    function isValidStaffVerificationAudit(data) {
+      return data.keys().hasAll(['auditId', 'staffUid', 'staffEmail', 'decision', 'previousStatus', 'newStatus', 'decidedByUid', 'createdAt'])
+        && data.keys().hasOnly([
+          'auditId', 'staffUid', 'staffName', 'staffEmail', 'invitationId', 'department',
+          'assignedRole', 'decision', 'previousStatus', 'newStatus', 'decidedByUid',
+          'decidedByName', 'decisionReason', 'createdAt'
+        ])
+        && isValidId(data.auditId)
+        && isValidId(data.staffUid)
+        && data.staffEmail is string && data.staffEmail.size() <= 254
+        && (!('staffName' in data) || (data.staffName is string && data.staffName.size() <= 140))
+        && (!('invitationId' in data) || (data.invitationId is string && data.invitationId.size() <= 128))
+        && (!('department' in data) || (data.department is string && data.department.size() <= 64))
+        && (!('assignedRole' in data) || (data.assignedRole is string && data.assignedRole.size() <= 80))
+        && data.decision in ['registered', 'approved', 'rejected', 'suspended', 'reactivated']
+        && data.previousStatus is string && data.previousStatus.size() <= 64
+        && data.newStatus is string && data.newStatus.size() <= 64
+        && isValidId(data.decidedByUid)
+        && (!('decidedByName' in data) || (data.decidedByName is string && data.decidedByName.size() <= 140))
+        && (!('decisionReason' in data) || (data.decisionReason is string && data.decisionReason.size() <= 500))
+        && data.createdAt is string && data.createdAt.size() <= 64;
     }
 
     function isValidDepartmentMessage(data) {
@@ -346,21 +427,109 @@ service cloud.firestore {
 
     function isValidEmailLog(data) {
       return data.keys().hasAll(['emailLogId', 'scope', 'eventType', 'recipientEmail', 'subject', 'fromAddress', 'replyToAddress', 'provider', 'status', 'createdAt', 'updatedAt'])
-        && data.keys().hasOnly(['emailLogId', 'scope', 'eventType', 'recipientEmail', 'subject', 'bodyPreview', 'fromAddress', 'replyToAddress', 'provider', 'providerMessageId', 'status', 'errorDetail', 'retryCount', 'triggeredByUid', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['emailLogId', 'scope', 'department', 'kind', 'eventType', 'campaignId', 'recipientEmail', 'recipientName', 'recipientUid', 'recipientType', 'ccEmails', 'bccEmails', 'subject', 'bodyPreview', 'htmlBody', 'ctaLabel', 'ctaUrl', 'attachments', 'fromAddress', 'replyToAddress', 'provider', 'providerMessageId', 'status', 'deliveryStatusDetail', 'errorDetail', 'bounceReason', 'retryCount', 'batchId', 'scheduledFor', 'sentAt', 'deliveredAt', 'openedAt', 'clickedAt', 'idempotencyKey', 'sourceRecord', 'triggeredByUid', 'triggeredByEmail', 'createdAt', 'updatedAt'])
         && isValidId(data.emailLogId)
         && data.scope in ['public_website', 'control_centre']
+        && (!('department' in data) || (data.department is string && data.department.size() <= 64))
+        && (!('kind' in data) || data.kind in ['automatic', 'manual', 'scheduled', 'bulk'])
         && data.eventType is string && data.eventType.size() >= 1 && data.eventType.size() <= 64
+        && (!('campaignId' in data) || (data.campaignId is string && data.campaignId.size() <= 128))
         && data.recipientEmail is string && data.recipientEmail.size() >= 3 && data.recipientEmail.size() <= 254
+        && (!('recipientName' in data) || (data.recipientName is string && data.recipientName.size() <= 140))
+        && (!('recipientUid' in data) || (data.recipientUid is string && data.recipientUid.size() <= 128))
+        && (!('recipientType' in data) || data.recipientType in ['user', 'worker', 'client', 'admin', 'custom'])
+        && (!('ccEmails' in data) || (data.ccEmails is list && data.ccEmails.size() <= 20 && (data.ccEmails.size() == 0 || data.ccEmails[0] is string)))
+        && (!('bccEmails' in data) || (data.bccEmails is list && data.bccEmails.size() <= 50 && (data.bccEmails.size() == 0 || data.bccEmails[0] is string)))
         && data.subject is string && data.subject.size() >= 1 && data.subject.size() <= 240
-        && (!('bodyPreview' in data) || (data.bodyPreview is string && data.bodyPreview.size() <= 1000))
+        && (!('bodyPreview' in data) || (data.bodyPreview is string && data.bodyPreview.size() <= 4000))
+        && (!('htmlBody' in data) || (data.htmlBody is string && data.htmlBody.size() <= 32000))
+        && (!('ctaLabel' in data) || (data.ctaLabel is string && data.ctaLabel.size() <= 80))
+        && (!('ctaUrl' in data) || (data.ctaUrl is string && data.ctaUrl.size() <= 500))
+        && (!('attachments' in data) || (data.attachments is list && data.attachments.size() <= 10 && (data.attachments.size() == 0 || data.attachments[0] is map)))
         && data.fromAddress is string && data.fromAddress.size() >= 3 && data.fromAddress.size() <= 254
         && data.replyToAddress is string && data.replyToAddress.size() >= 3 && data.replyToAddress.size() <= 254
         && data.provider is string && data.provider.size() >= 1 && data.provider.size() <= 80
         && (!('providerMessageId' in data) || (data.providerMessageId is string && data.providerMessageId.size() <= 160))
-        && data.status in ['sent', 'failed', 'not_configured']
+        && data.status in ['queued', 'sending', 'sent', 'accepted', 'delivered', 'failed', 'bounced', 'rejected', 'deferred', 'not_configured', 'scheduled', 'cancelled', 'duplicate_blocked']
+        && (!('deliveryStatusDetail' in data) || (data.deliveryStatusDetail is string && data.deliveryStatusDetail.size() <= 800))
         && (!('errorDetail' in data) || (data.errorDetail is string && data.errorDetail.size() <= 800))
+        && (!('bounceReason' in data) || (data.bounceReason is string && data.bounceReason.size() <= 500))
         && (!('retryCount' in data) || (data.retryCount is number && data.retryCount >= 0 && data.retryCount <= 100))
+        && (!('batchId' in data) || (data.batchId is string && data.batchId.size() <= 128))
+        && (!('scheduledFor' in data) || (data.scheduledFor is string && data.scheduledFor.size() <= 64))
+        && (!('sentAt' in data) || (data.sentAt is string && data.sentAt.size() <= 64))
+        && (!('deliveredAt' in data) || (data.deliveredAt is string && data.deliveredAt.size() <= 64))
+        && (!('openedAt' in data) || (data.openedAt is string && data.openedAt.size() <= 64))
+        && (!('clickedAt' in data) || (data.clickedAt is string && data.clickedAt.size() <= 64))
+        && (!('idempotencyKey' in data) || (data.idempotencyKey is string && data.idempotencyKey.size() <= 160))
+        && (!('sourceRecord' in data) || (data.sourceRecord is string && data.sourceRecord.size() <= 200))
         && (!('triggeredByUid' in data) || (data.triggeredByUid is string && data.triggeredByUid.size() <= 128))
+        && (!('triggeredByEmail' in data) || (data.triggeredByEmail is string && data.triggeredByEmail.size() <= 254))
+        && data.createdAt is string && data.createdAt.size() <= 64
+        && data.updatedAt is string && data.updatedAt.size() <= 64;
+    }
+
+    function isValidEmailTemplate(data) {
+      return data.keys().hasAll(['templateId', 'name', 'category', 'department', 'subject', 'bodyHtml', 'active', 'createdByUid', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['templateId', 'name', 'category', 'department', 'subject', 'bodyHtml', 'bodyText', 'variables', 'usageCount', 'active', 'createdByUid', 'createdByEmail', 'createdAt', 'updatedAt'])
+        && isValidId(data.templateId)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 140
+        && data.category in ['General Announcements', 'Account Updates', 'Welcome Emails', 'Payment Notifications', 'Important Notices', 'Task Notifications', 'Warnings', 'Support Responses', 'Policy Updates', 'Custom Templates']
+        && data.department is string && data.department.size() >= 1 && data.department.size() <= 64
+        && data.subject is string && data.subject.size() >= 1 && data.subject.size() <= 240
+        && data.bodyHtml is string && data.bodyHtml.size() <= 32000
+        && (!('bodyText' in data) || (data.bodyText is string && data.bodyText.size() <= 16000))
+        && (!('variables' in data) || (data.variables is list && data.variables.size() <= 30 && (data.variables.size() == 0 || data.variables[0] is string)))
+        && (!('usageCount' in data) || (data.usageCount is number && data.usageCount >= 0))
+        && data.active is bool
+        && data.createdByUid is string && data.createdByUid.size() >= 1 && data.createdByUid.size() <= 128
+        && (!('createdByEmail' in data) || (data.createdByEmail is string && data.createdByEmail.size() <= 254))
+        && data.createdAt is string && data.createdAt.size() <= 64
+        && data.updatedAt is string && data.updatedAt.size() <= 64;
+    }
+
+    function isValidEmailDraft(data) {
+      return data.keys().hasAll(['draftId', 'department', 'createdByUid', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['draftId', 'department', 'toEmails', 'ccEmails', 'bccEmails', 'subject', 'bodyHtml', 'bodyText', 'attachments', 'scheduledFor', 'templateId', 'includeSignature', 'createdByUid', 'createdByEmail', 'createdAt', 'updatedAt'])
+        && isValidId(data.draftId)
+        && data.department is string && data.department.size() >= 1 && data.department.size() <= 64
+        && (!('toEmails' in data) || (data.toEmails is list && data.toEmails.size() <= 200 && (data.toEmails.size() == 0 || data.toEmails[0] is string)))
+        && (!('ccEmails' in data) || (data.ccEmails is list && data.ccEmails.size() <= 20 && (data.ccEmails.size() == 0 || data.ccEmails[0] is string)))
+        && (!('bccEmails' in data) || (data.bccEmails is list && data.bccEmails.size() <= 50 && (data.bccEmails.size() == 0 || data.bccEmails[0] is string)))
+        && (!('subject' in data) || (data.subject is string && data.subject.size() <= 240))
+        && (!('bodyHtml' in data) || (data.bodyHtml is string && data.bodyHtml.size() <= 32000))
+        && (!('bodyText' in data) || (data.bodyText is string && data.bodyText.size() <= 16000))
+        && (!('attachments' in data) || (data.attachments is list && data.attachments.size() <= 10 && (data.attachments.size() == 0 || data.attachments[0] is map)))
+        && (!('scheduledFor' in data) || (data.scheduledFor is string && data.scheduledFor.size() <= 64))
+        && (!('templateId' in data) || (data.templateId is string && data.templateId.size() <= 128))
+        && (!('includeSignature' in data) || data.includeSignature is bool)
+        && data.createdByUid is string && data.createdByUid.size() >= 1 && data.createdByUid.size() <= 128
+        && (!('createdByEmail' in data) || (data.createdByEmail is string && data.createdByEmail.size() <= 254))
+        && data.createdAt is string && data.createdAt.size() <= 64
+        && data.updatedAt is string && data.updatedAt.size() <= 64;
+    }
+
+    function isValidEmailCampaign(data) {
+      return data.keys().hasAll(['campaignId', 'name', 'department', 'recipientCount', 'sentCount', 'failedCount', 'subject', 'status', 'createdByUid', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['campaignId', 'name', 'department', 'audienceFilter', 'recipientCount', 'sentCount', 'failedCount', 'subject', 'bodyHtml', 'bodyText', 'attachments', 'status', 'scheduledFor', 'startedAt', 'completedAt', 'templateId', 'createdByUid', 'createdByEmail', 'createdAt', 'updatedAt'])
+        && isValidId(data.campaignId)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 160
+        && data.department is string && data.department.size() >= 1 && data.department.size() <= 64
+        && (!('audienceFilter' in data) || (data.audienceFilter is string && data.audienceFilter.size() <= 120))
+        && data.recipientCount is number && data.recipientCount >= 0 && data.recipientCount <= 5000
+        && data.sentCount is number && data.sentCount >= 0 && data.sentCount <= 5000
+        && data.failedCount is number && data.failedCount >= 0 && data.failedCount <= 5000
+        && data.subject is string && data.subject.size() >= 1 && data.subject.size() <= 240
+        && (!('bodyHtml' in data) || (data.bodyHtml is string && data.bodyHtml.size() <= 32000))
+        && (!('bodyText' in data) || (data.bodyText is string && data.bodyText.size() <= 16000))
+        && (!('attachments' in data) || (data.attachments is list && data.attachments.size() <= 10 && (data.attachments.size() == 0 || data.attachments[0] is map)))
+        && data.status in ['draft', 'scheduled', 'queued', 'sending', 'completed', 'partially_failed', 'failed', 'cancelled']
+        && (!('scheduledFor' in data) || (data.scheduledFor is string && data.scheduledFor.size() <= 64))
+        && (!('startedAt' in data) || (data.startedAt is string && data.startedAt.size() <= 64))
+        && (!('completedAt' in data) || (data.completedAt is string && data.completedAt.size() <= 64))
+        && (!('templateId' in data) || (data.templateId is string && data.templateId.size() <= 128))
+        && data.createdByUid is string && data.createdByUid.size() >= 1 && data.createdByUid.size() <= 128
+        && (!('createdByEmail' in data) || (data.createdByEmail is string && data.createdByEmail.size() <= 254))
         && data.createdAt is string && data.createdAt.size() <= 64
         && data.updatedAt is string && data.updatedAt.size() <= 64;
     }
@@ -393,7 +562,7 @@ service cloud.firestore {
       return data.keys().hasAll(['notificationId', 'type', 'title', 'message', 'read', 'createdAt'])
         && data.keys().hasOnly(['notificationId', 'department', 'type', 'title', 'message', 'read', 'createdAt'])
         && isValidId(data.notificationId)
-        && data.type in ['user_registration', 'client_registration', 'new_task', 'reported_account', 'dispute', 'withdrawal', 'failed_payment', 'api_failure', 'security_alert', 'system_error', 'staff_invitation']
+        && data.type in ['user_registration', 'client_registration', 'new_task', 'reported_account', 'dispute', 'withdrawal', 'failed_payment', 'api_failure', 'security_alert', 'system_error', 'staff_invitation', 'staff_verification']
         && data.title is string && data.title.size() >= 1 && data.title.size() <= 160
         && data.message is string && data.message.size() >= 1 && data.message.size() <= 600
         && data.read is bool
@@ -416,23 +585,45 @@ service cloud.firestore {
     }
 
     // --- Invitation-Only Staff Registration & Admin RBAC ---
+    match /invitation_links/{codeHash} {
+      allow get: if isValidId(codeHash);
+      allow list: if false;
+      allow create: if isValidId(codeHash) && isValidInvitationLink(incoming()) && canManageDeptInvitations(incoming().department);
+      allow update: if isValidId(codeHash) && isValidInvitationLink(incoming()) && (
+        (canManageDeptInvitations(existing().department) && incoming().department == existing().department && incoming().codeHash == existing().codeHash)
+        || (
+          isEmailVerified()
+          && existing().status in ['pending', 'opened']
+          && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+          && ((existing().singleUse == true && incoming().status == 'accepted') || (existing().singleUse == false && incoming().status == 'opened'))
+        )
+      );
+      allow delete: if isValidId(codeHash) && isSuperAdmin();
+    }
+
     match /staff_invitations/{invitationId} {
       allow get: if isValidId(invitationId) && (
         isSuperAdmin()
         || canManageStaff()
-        || (isSignedIn() && existing().email == request.auth.token.email)
+        || (hasActiveAdminRecord() && hasAction('manage') && existing().department in adminData().departments)
+        || (isSignedIn() && (existing().email == request.auth.token.email || existing().email == ''))
       );
-      allow list: if isSuperAdmin() || canManageStaff();
-      allow create: if isValidId(invitationId) && isValidStaffInvitation(incoming()) && (isSuperAdmin() || canManageStaff());
+      allow list: if isSuperAdmin()
+        || canManageStaff()
+        || (hasActiveAdminRecord() && hasAction('manage') && existing().department in adminData().departments);
+      allow create: if isValidId(invitationId) && isValidStaffInvitation(incoming()) && canManageDeptInvitations(incoming().department);
       allow update: if isValidId(invitationId) && isValidStaffInvitation(incoming()) && (
-        (isSuperAdmin() || canManageStaff())
+        (canManageDeptInvitations(existing().department) && incoming().department == existing().department && incoming().invitationId == existing().invitationId)
         || (
           isEmailVerified()
-          && existing().email == request.auth.token.email
-          && existing().status == 'pending'
-          && incoming().status == 'accepted'
+          && (existing().email == '' || existing().email == request.auth.token.email)
+          && existing().status in ['pending', 'opened']
+          && (
+            (existing().singleUse == true && incoming().status == 'accepted')
+            || (existing().singleUse == false && incoming().status == 'opened')
+          )
           && incoming().acceptedByUid == request.auth.uid
-          && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'acceptedByUid', 'acceptedAt', 'updatedAt'])
+          && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'acceptedByUid', 'acceptedByEmail', 'acceptedAt', 'acceptedCount', 'updatedAt'])
           && incoming().department == existing().department
           && incoming().departmentRole == existing().departmentRole
           && incoming().permissions == existing().permissions
@@ -452,11 +643,16 @@ service cloud.firestore {
           && uid == request.auth.uid
           && incoming().uid == request.auth.uid
           && incoming().email == request.auth.token.email
-          && incoming().status == 'active'
+          && incoming().status == 'pending_verification'
+          && incoming().verificationStatus == 'pending_verification'
+          && incoming().accessStatus == 'inactive'
           && ('invitationId' in incoming())
           && exists(/databases/$(database)/documents/staff_invitations/$(incoming().invitationId))
-          && get(/databases/$(database)/documents/staff_invitations/$(incoming().invitationId)).data.email == request.auth.token.email
-          && get(/databases/$(database)/documents/staff_invitations/$(incoming().invitationId)).data.status == 'pending'
+          && (
+            get(/databases/$(database)/documents/staff_invitations/$(incoming().invitationId)).data.email == ''
+            || get(/databases/$(database)/documents/staff_invitations/$(incoming().invitationId)).data.email == request.auth.token.email
+          )
+          && get(/databases/$(database)/documents/staff_invitations/$(incoming().invitationId)).data.status in ['pending', 'opened']
           && incoming().primaryDepartment == get(/databases/$(database)/documents/staff_invitations/$(incoming().invitationId)).data.department
           && incoming().role == get(/databases/$(database)/documents/staff_invitations/$(incoming().invitationId)).data.departmentRole
           && incoming().actions == get(/databases/$(database)/documents/staff_invitations/$(incoming().invitationId)).data.permissions
@@ -473,11 +669,29 @@ service cloud.firestore {
           && incoming().email == existing().email
           && incoming().role == existing().role
           && incoming().status == existing().status
+          && (!('verificationStatus' in existing()) || incoming().verificationStatus == existing().verificationStatus)
+          && (!('accessStatus' in existing()) || incoming().accessStatus == existing().accessStatus)
           && incoming().departments == existing().departments
           && incoming().actions == existing().actions
         )
       );
       allow delete: if isValidId(uid) && isSuperAdmin() && uid != request.auth.uid;
+    }
+
+    match /staff_verification_audits/{auditId} {
+      allow get: if isValidId(auditId) && (isSuperAdmin() || canManageStaff());
+      allow list: if isSuperAdmin() || canManageStaff();
+      allow create: if isValidId(auditId) && isValidStaffVerificationAudit(incoming()) && (
+        isSuperAdmin()
+        || (
+          isEmailVerified()
+          && incoming().staffUid == request.auth.uid
+          && incoming().decidedByUid == request.auth.uid
+          && incoming().decision == 'registered'
+          && incoming().newStatus == 'pending_verification'
+        )
+      );
+      allow update, delete: if false;
     }
 
     match /department_messages/{messageId} {
@@ -704,7 +918,10 @@ service cloud.firestore {
     match /activity_logs/{eventId} {
       allow get: if isValidId(eventId) && (hasDept('activity_logs') || isAnyAdmin());
       allow list: if hasDept('activity_logs') || isAnyAdmin();
-      allow create: if isValidId(eventId) && isValidActivityLog(incoming()) && isAnyAdmin() && incoming().actorId == request.auth.uid;
+      allow create: if isValidId(eventId) && isValidActivityLog(incoming()) && incoming().actorId == request.auth.uid && (
+        isAnyAdmin()
+        || (isEmailVerified() && incoming().action == 'STAFF_INVITATION_ACCEPTED' && exists(adminDocPath()))
+      );
       allow update, delete: if false;
     }
 
@@ -722,16 +939,96 @@ service cloud.firestore {
     match /platform_settings/{sectionId} {
       allow get: if isValidId(sectionId) && (sectionId == 'public' || sectionId == 'email_configuration' || hasDept('platform_settings') || isAnyAdmin());
       allow list: if hasDept('platform_settings') || isAnyAdmin();
-      allow create, update: if isValidId(sectionId) && isValidPlatformSetting(incoming()) && hasDept('platform_settings') && (hasAction('update') || hasAction('edit') || hasAction('manage'));
+      allow create, update: if isValidId(sectionId) && isValidPlatformSetting(incoming()) && (
+        (hasDept('platform_settings') && (hasAction('update') || hasAction('edit') || hasAction('manage')))
+        || (sectionId == 'email_configuration' && isAnyAdmin() && (hasAction('email.manage_settings') || hasAction('email.manage_templates')))
+      );
       allow delete: if false;
     }
 
     match /email_logs/{emailLogId} {
-      allow get: if isValidId(emailLogId) && (isSuperAdmin() || hasDept('platform_settings') || hasDept('activity_logs'));
-      allow list: if isSuperAdmin() || hasDept('platform_settings') || hasDept('activity_logs');
-      allow create: if isValidId(emailLogId) && isValidEmailLog(incoming()) && isAnyAdmin();
-      allow update: if isValidId(emailLogId) && isValidEmailLog(incoming()) && (isSuperAdmin() || (hasDept('platform_settings') && hasAction('update'))) && incoming().emailLogId == existing().emailLogId && incoming().createdAt == existing().createdAt;
+      allow get: if isValidId(emailLogId) && (
+        isSuperAdmin()
+        || hasDept('platform_settings')
+        || hasDept('activity_logs')
+        || (isAnyAdmin() && 'department' in existing() && hasDept(existing().department))
+      );
+      allow list: if isSuperAdmin()
+        || hasDept('platform_settings')
+        || hasDept('activity_logs')
+        || (isAnyAdmin() && 'department' in existing() && hasDept(existing().department));
+      allow create: if isValidId(emailLogId) && isValidEmailLog(incoming()) && (
+        isAnyAdmin()
+        || (isEmailVerified() && incoming().triggeredByUid == request.auth.uid && incoming().eventType == 'staff_registration' && exists(adminDocPath()))
+      );
+      allow update: if isValidId(emailLogId) && isValidEmailLog(incoming()) && (
+        isSuperAdmin()
+        || (hasDept('platform_settings') && (hasAction('update') || hasAction('edit') || hasAction('manage')))
+        || (isAnyAdmin() && 'department' in existing() && hasDept(existing().department) && (hasAction('email.retry_failed') || hasAction('email.schedule') || hasAction('email.send') || hasAction('email.view') || hasAction('edit') || hasAction('update') || hasAction('manage')))
+      ) && incoming().emailLogId == existing().emailLogId && incoming().createdAt == existing().createdAt;
       allow delete: if false;
+    }
+
+    match /email_templates/{templateId} {
+      allow get: if isValidId(templateId) && (
+        isSuperAdmin()
+        || hasDept('platform_settings')
+        || (isAnyAdmin() && 'department' in existing() && (existing().department == 'all' || hasDept(existing().department)))
+      );
+      allow list: if isSuperAdmin()
+        || hasDept('platform_settings')
+        || (isAnyAdmin() && 'department' in existing() && (existing().department == 'all' || hasDept(existing().department)));
+      allow create: if isValidId(templateId) && isValidEmailTemplate(incoming()) && (
+        isSuperAdmin()
+        || (isAnyAdmin() && (hasAction('email.manage_templates') || hasDept('platform_settings')) && (incoming().department == 'all' || hasDept(incoming().department)))
+      ) && incoming().createdByUid == request.auth.uid;
+      allow update: if isValidId(templateId) && isValidEmailTemplate(incoming()) && (
+        isSuperAdmin()
+        || (isAnyAdmin() && (hasAction('email.manage_templates') || hasAction('email.send') || hasDept('platform_settings')) && (existing().department == 'all' || hasDept(existing().department)))
+      ) && incoming().templateId == existing().templateId && incoming().createdAt == existing().createdAt;
+      allow delete: if isValidId(templateId) && (
+        isSuperAdmin()
+        || (isAnyAdmin() && hasAction('email.manage_templates') && existing().department != 'all' && hasDept(existing().department))
+      );
+    }
+
+    match /email_drafts/{draftId} {
+      allow get: if isValidId(draftId) && (
+        isSuperAdmin()
+        || (isAnyAdmin() && (existing().createdByUid == request.auth.uid || ('department' in existing() && hasDept(existing().department))))
+      );
+      allow list: if isSuperAdmin()
+        || (isAnyAdmin() && existing().createdByUid == request.auth.uid)
+        || (isAnyAdmin() && 'department' in existing() && hasDept(existing().department));
+      allow create: if isValidId(draftId) && isValidEmailDraft(incoming()) && isAnyAdmin() && (isSuperAdmin() || hasAction('email.compose')) && incoming().createdByUid == request.auth.uid;
+      allow update: if isValidId(draftId) && isValidEmailDraft(incoming()) && (
+        isSuperAdmin()
+        || (isAnyAdmin() && existing().createdByUid == request.auth.uid && hasAction('email.compose'))
+      ) && incoming().draftId == existing().draftId && incoming().createdAt == existing().createdAt;
+      allow delete: if isValidId(draftId) && (
+        isSuperAdmin()
+        || (isAnyAdmin() && existing().createdByUid == request.auth.uid)
+      );
+    }
+
+    match /email_campaigns/{campaignId} {
+      allow get: if isValidId(campaignId) && (
+        isSuperAdmin()
+        || hasDept('platform_settings')
+        || (isAnyAdmin() && 'department' in existing() && hasDept(existing().department))
+      );
+      allow list: if isSuperAdmin()
+        || hasDept('platform_settings')
+        || (isAnyAdmin() && 'department' in existing() && hasDept(existing().department));
+      allow create: if isValidId(campaignId) && isValidEmailCampaign(incoming()) && (
+        isSuperAdmin()
+        || (isAnyAdmin() && (hasAction('email.send_bulk') || hasAction('email.schedule')) && hasDept(incoming().department))
+      ) && incoming().createdByUid == request.auth.uid;
+      allow update: if isValidId(campaignId) && isValidEmailCampaign(incoming()) && (
+        isSuperAdmin()
+        || (isAnyAdmin() && (hasAction('email.send_bulk') || hasAction('email.schedule') || hasAction('email.retry_failed')) && hasDept(existing().department))
+      ) && incoming().campaignId == existing().campaignId && incoming().createdAt == existing().createdAt;
+      allow delete: if isValidId(campaignId) && isSuperAdmin();
     }
 
     // --- Global Admin Features ---
@@ -753,7 +1050,15 @@ service cloud.firestore {
     match /notifications/{notificationId} {
       allow get: if isValidId(notificationId) && isAnyAdmin();
       allow list: if isAnyAdmin();
-      allow create: if isValidId(notificationId) && isValidNotification(incoming()) && isAnyAdmin();
+      allow create: if isValidId(notificationId) && isValidNotification(incoming()) && (
+        isAnyAdmin()
+        || (
+          isEmailVerified()
+          && incoming().type == 'staff_verification'
+          && exists(adminDocPath())
+          && adminData().status == 'pending_verification'
+        )
+      );
       allow update: if isValidId(notificationId) && isValidNotification(incoming()) && isAnyAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['read']);
       allow delete: if isValidId(notificationId) && isSuperAdmin();
     }

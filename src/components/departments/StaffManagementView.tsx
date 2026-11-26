@@ -1,20 +1,21 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
-  Check,
-  Copy,
+  CheckCircle2,
+  Clock,
+  Eye,
   KeyRound,
   MailPlus,
-  RefreshCw,
   Shield,
-  ShieldOff,
+  ShieldCheck,
   UserCheck,
   UserMinus,
   UserX,
   X,
+  XCircle,
 } from 'lucide-react';
 import {
-  DEPARTMENT_ROLE_PRESETS,
   EIGHT_DEPARTMENTS,
+  EMAIL_GRANULAR_PERMISSIONS,
   GRANULAR_PERMISSIONS,
   ROLE_DEFINITIONS,
   STAFF_MANAGEMENT_SUBDEPARTMENTS,
@@ -26,13 +27,14 @@ import type {
   AdminAction,
   AdminUser,
   EightDepartmentId,
-  MessagingStatus,
   StaffInvitation,
   StaffLoginHistory,
+  StaffVerificationAudit,
 } from '../../types/admin';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { EmptyState } from '../common/EmptyState';
 import { StatusText } from '../common/StatusText';
+import { DepartmentInvitationsPanel } from './DepartmentInvitationsPanel';
 
 interface StaffManagementViewProps {
   subId: string;
@@ -41,6 +43,7 @@ interface StaffManagementViewProps {
   invitations: StaffInvitation[];
   loginHistory: StaffLoginHistory[];
   activityLogs: ActivityLog[];
+  verificationAudits?: StaffVerificationAudit[];
 }
 
 export function StaffManagementView({
@@ -50,63 +53,50 @@ export function StaffManagementView({
   invitations,
   loginHistory,
   activityLogs,
+  verificationAudits = [],
 }: StaffManagementViewProps) {
   const { adminProfile, isSuperAdmin } = useAuth();
 
-  const [messagingStatus, setMessagingStatus] = useState<MessagingStatus | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
-  const [issuedLinkBanner, setIssuedLinkBanner] = useState<{
-    email: string;
-    departmentLabel: string;
-    inviteUrl: string;
-    deliveryStatus: string;
-    deliveryDetail: string;
-  } | null>(null);
-  const [copiedUrl, setCopiedUrl] = useState(false);
+  const [verificationFilter, setVerificationFilter] = useState<
+    'pending_verification' | 'rejected' | 'reviewed'
+  >('pending_verification');
 
-  // Invite Staff Form State
-  const [invFullName, setInvFullName] = useState('');
-  const [invEmail, setInvEmail] = useState('');
-  const [invPhone, setInvPhone] = useState('');
-  const [invDepartment, setInvDepartment] = useState<EightDepartmentId>('user_management');
-  const [invRole, setInvRole] = useState(DEPARTMENT_ROLE_PRESETS.user_management[0]);
-  const [invPermissions, setInvPermissions] = useState<AdminAction[]>([
-    'view',
-    'create',
-    'edit',
-    'approve',
-  ]);
-  const [invExpiryHours, setInvExpiryHours] = useState<number>(48);
-  const [invBusy, setInvBusy] = useState(false);
+  // Review / Approve Staff Verification Modal
+  const [reviewingStaff, setReviewingStaff] = useState<AdminUser | null>(null);
+  const [reviewDept, setReviewDept] = useState<EightDepartmentId>('user_management');
+  const [reviewRole, setReviewRole] = useState('');
+  const [reviewActions, setReviewActions] = useState<AdminAction[]>(['view']);
+  const [reviewNote, setReviewNote] = useState('');
+  const [reviewBusy, setReviewBusy] = useState(false);
 
   // Edit / Transfer Staff Modal State
   const [editingStaff, setEditingStaff] = useState<AdminUser | null>(null);
   const [editDept, setEditDept] = useState<EightDepartmentId>('user_management');
   const [editRole, setEditRole] = useState('');
   const [editActions, setEditActions] = useState<AdminAction[]>(['view']);
-  const [editStatus, setEditStatus] = useState<'active' | 'suspended' | 'deactivated' | 'revoked'>(
-    'active'
-  );
+  const [editStatus, setEditStatus] = useState<
+    'active' | 'suspended' | 'deactivated' | 'revoked'
+  >('active');
   const [editBusy, setEditBusy] = useState(false);
 
   const [confirmState, setConfirmState] = useState<{
     open: boolean;
     title: string;
     description: string;
+    confirmLabel?: string;
     danger: boolean;
+    requireReason?: boolean;
+    reasonLabel?: string;
     onConfirm: (reason: string) => Promise<void>;
   } | null>(null);
 
-  useEffect(() => {
-    fetch('/api/v1/system/messaging-status')
-      .then((r) => r.json())
-      .then((data: MessagingStatus) => setMessagingStatus(data))
-      .catch(() => undefined);
-  }, []);
-
   const getEffectiveInviteStatus = (inv: StaffInvitation): StaffInvitation['status'] => {
-    if (inv.status === 'pending' && new Date(inv.expiresAt).getTime() < Date.now()) {
+    if (
+      (inv.status === 'pending' || inv.status === 'opened') &&
+      new Date(inv.expiresAt).getTime() < Date.now()
+    ) {
       return 'expired';
     }
     return inv.status;
@@ -116,24 +106,44 @@ export function StaffManagementView({
     return [...adminUsers].sort((a, b) => a.displayName.localeCompare(b.displayName));
   }, [adminUsers]);
 
+  const pendingVerificationStaff = useMemo(() => {
+    return [...adminUsers]
+      .filter((s) => s.status === 'pending_verification')
+      .sort((a, b) => (b.registeredAt || b.createdAt).localeCompare(a.registeredAt || a.createdAt));
+  }, [adminUsers]);
+
+  const verificationQueueList = useMemo(() => {
+    if (verificationFilter === 'pending_verification') {
+      return pendingVerificationStaff;
+    }
+    if (verificationFilter === 'rejected') {
+      return [...adminUsers]
+        .filter((s) => s.status === 'rejected')
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    }
+    return [...adminUsers]
+      .filter((s) => s.role !== 'SUPER_ADMIN' && s.status !== 'pending_verification')
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }, [adminUsers, pendingVerificationStaff, verificationFilter]);
+
   const filteredStaff = useMemo(() => {
     if (subId === 'active_staff') return departmentStaffList.filter((s) => s.status === 'active');
     if (subId === 'suspended_staff')
       return departmentStaffList.filter((s) => s.status === 'suspended');
     if (subId === 'deactivated_staff')
       return departmentStaffList.filter(
-        (s) => s.status === 'deactivated' || s.status === 'revoked'
+        (s) => s.status === 'deactivated' || s.status === 'revoked' || s.status === 'rejected'
       );
     return departmentStaffList;
   }, [departmentStaffList, subId]);
 
-  const sortedInvitations = useMemo(() => {
-    return [...invitations].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  }, [invitations]);
-
   const sortedLoginHistory = useMemo(() => {
     return [...loginHistory].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }, [loginHistory]);
+
+  const sortedVerificationAudits = useMemo(() => {
+    return [...verificationAudits].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }, [verificationAudits]);
 
   const staffLogs = useMemo(() => {
     return [...activityLogs]
@@ -152,108 +162,102 @@ export function StaffManagementView({
       ? 'All Departments (Super Admin)'
       : EIGHT_DEPARTMENTS.find((d) => d.id === id)?.label || id || 'Unassigned';
 
-  const handleCopyInviteUrl = async (url: string) => {
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopiedUrl(true);
-      window.setTimeout(() => setCopiedUrl(false), 2500);
-    } catch {
-      setActionError('Clipboard access unavailable. Copy the URL manually from the box above.');
-    }
+  const openVerificationModal = (staff: AdminUser) => {
+    const primary =
+      staff.primaryDepartment && staff.primaryDepartment !== 'all'
+        ? staff.primaryDepartment
+        : (staff.departments.find((d) =>
+            EIGHT_DEPARTMENTS.some((ed) => ed.id === d)
+          ) as EightDepartmentId) || 'user_management';
+
+    setReviewingStaff(staff);
+    setReviewDept(primary);
+    setReviewRole(staff.role);
+    setReviewActions(staff.actions?.length ? staff.actions : ['view']);
+    setReviewNote('');
   };
 
-  const handleCreateInvitation = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setActionError(null);
-    setActionSuccess(null);
-    if (invPermissions.length === 0) {
-      setActionError('Select at least one permission for the invited staff member.');
-      return;
-    }
-    setInvBusy(true);
-    try {
-      const res = await apiFetch<{
-        invitation: StaffInvitation;
-        inviteUrl: string;
-        delivery: { sent: boolean; status: string; detail: string };
-      }>('/api/v1/admin/invitations', {
-        method: 'POST',
-        body: JSON.stringify({
-          fullName: invFullName.trim(),
-          email: invEmail.trim(),
-          phone: invPhone.trim(),
-          department: invDepartment,
-          departmentRole: invRole.trim(),
-          permissions: invPermissions,
-          expiryHours: invExpiryHours,
-        }),
-      });
-
-      setIssuedLinkBanner({
-        email: res.invitation.email,
-        departmentLabel: deptLabel(res.invitation.department),
-        inviteUrl: res.inviteUrl,
-        deliveryStatus: res.delivery.status,
-        deliveryDetail: res.delivery.detail,
-      });
-      setActionSuccess(
-        `Single-use invitation created for ${res.invitation.email} (${deptLabel(
-          res.invitation.department
-        )}).`
-      );
-      setInvFullName('');
-      setInvEmail('');
-      setInvPhone('');
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Failed to create invitation.');
-    } finally {
-      setInvBusy(false);
-    }
-  };
-
-  const handleResendInvite = async (inv: StaffInvitation) => {
-    setActionError(null);
-    setActionSuccess(null);
-    try {
-      const res = await apiFetch<{
-        invitation: StaffInvitation;
-        inviteUrl: string;
-        delivery: { sent: boolean; status: string; detail: string };
-      }>(`/api/v1/admin/invitations/${inv.invitationId}/resend`, {
-        method: 'POST',
-      });
-      setIssuedLinkBanner({
-        email: res.invitation.email,
-        departmentLabel: deptLabel(res.invitation.department),
-        inviteUrl: res.inviteUrl,
-        deliveryStatus: res.delivery.status,
-        deliveryDetail: res.delivery.detail,
-      });
-      setActionSuccess(
-        `Previous invitation replaced and new single-use link generated for ${inv.email}.`
-      );
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Failed to resend invitation.');
-    }
-  };
-
-  const handleRevokeInvite = (inv: StaffInvitation) => {
+  const handleQuickApprove = (staff: AdminUser) => {
+    if (!isSuperAdmin) return;
     setConfirmState({
       open: true,
-      title: 'Revoke Staff Invitation',
-      description: `Revoke the pending invitation for ${inv.email} (${deptLabel(
-        inv.department
-      )})? The link will become permanently invalid.`,
-      danger: true,
+      title: 'Approve & Activate Staff Account',
+      description: `Verify ${staff.displayName} (${staff.email}) and activate access to ${deptLabel(
+        staff.primaryDepartment || staff.departments[0]
+      )} as ${staff.role}?`,
+      confirmLabel: 'Approve & Activate',
+      danger: false,
       onConfirm: async () => {
         setActionError(null);
+        setActionSuccess(null);
         try {
-          await apiFetch(`/api/v1/admin/invitations/${inv.invitationId}/revoke`, {
+          await apiFetch(`/api/v1/admin/staff/${staff.uid}/verify-approve`, {
             method: 'POST',
+            body: JSON.stringify({}),
           });
-          setActionSuccess(`Invitation for ${inv.email} revoked.`);
+          setActionSuccess(
+            `${staff.displayName} verified and activated for ${deptLabel(
+              staff.primaryDepartment || staff.departments[0]
+            )}.`
+          );
         } catch (err) {
-          setActionError(err instanceof Error ? err.message : 'Revoke failed.');
+          setActionError(err instanceof Error ? err.message : 'Approval failed.');
+        } finally {
+          setConfirmState(null);
+        }
+      },
+    });
+  };
+
+  const handleModalApproveSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!reviewingStaff || !isSuperAdmin) return;
+    setActionError(null);
+    setActionSuccess(null);
+    setReviewBusy(true);
+    try {
+      await apiFetch(`/api/v1/admin/staff/${reviewingStaff.uid}/verify-approve`, {
+        method: 'POST',
+        body: JSON.stringify({
+          department: reviewDept,
+          role: reviewRole.trim(),
+          actions: reviewActions,
+          note: reviewNote.trim(),
+        }),
+      });
+      setActionSuccess(
+        `${reviewingStaff.displayName} verified and activated for ${deptLabel(reviewDept)}.`
+      );
+      setReviewingStaff(null);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to approve staff account.');
+    } finally {
+      setReviewBusy(false);
+    }
+  };
+
+  const handleRejectStaff = (staff: AdminUser) => {
+    if (!isSuperAdmin) return;
+    setConfirmState({
+      open: true,
+      title: 'Reject Staff Account Registration',
+      description: `Reject registration for ${staff.displayName} (${staff.email})? They will remain blocked from accessing any Control Centre workplace.`,
+      confirmLabel: 'Reject Account',
+      danger: true,
+      requireReason: true,
+      reasonLabel: 'Rejection Reason (Required — Recorded in Verification Audit & Email)',
+      onConfirm: async (reason) => {
+        setActionError(null);
+        setActionSuccess(null);
+        try {
+          await apiFetch(`/api/v1/admin/staff/${staff.uid}/verify-reject`, {
+            method: 'POST',
+            body: JSON.stringify({ reason, notifyEmail: true }),
+          });
+          setActionSuccess(`Staff registration for ${staff.email} rejected.`);
+          setReviewingStaff(null);
+        } catch (err) {
+          setActionError(err instanceof Error ? err.message : 'Rejection failed.');
         } finally {
           setConfirmState(null);
         }
@@ -273,7 +277,11 @@ export function StaffManagementView({
     setEditDept(primary);
     setEditRole(staff.role);
     setEditActions(staff.actions || ['view']);
-    setEditStatus(staff.status);
+    setEditStatus(
+      staff.status === 'pending_verification' || staff.status === 'rejected'
+        ? 'active'
+        : staff.status
+    );
   };
 
   const handleSaveStaffEdit = async (e: React.FormEvent) => {
@@ -352,27 +360,44 @@ export function StaffManagementView({
     });
   };
 
+  const activeInvitationsCount = invitations.filter((i) => {
+    const st = getEffectiveInviteStatus(i);
+    return st === 'pending' || st === 'opened';
+  }).length;
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="typo-page-heading text-[#172B46]">
-            Staff Management & Invitations
+            Staff Management, Invitations & Verification
           </h1>
           <p className="mt-1 typo-body text-[#75869D]">
-            Invitation-only staff provisioning, strict department isolation, permission control, and
-            session governance.
+            Short shareable invitation links, strict department isolation, and mandatory Super Admin
+            account verification before workplace activation.
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => onSelectSub('invite_staff')}
-          className="inline-flex items-center gap-2 px-4 py-2 typo-button text-white bg-[#1265C8] hover:bg-[#102B50] rounded-md transition-colors whitespace-nowrap shrink-0"
-        >
-          <MailPlus className="w-4 h-4" />
-          Invite Department Staff
-        </button>
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          {pendingVerificationStaff.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => onSelectSub('staff_verification')}
+              className="inline-flex items-center gap-2 px-3.5 py-2 typo-button text-[#172B46] bg-amber-100 hover:bg-amber-200 border border-amber-300 rounded-md transition-colors whitespace-nowrap"
+            >
+              <Clock className="w-4 h-4 text-[#B7791F]" />
+              Review Pending ({pendingVerificationStaff.length})
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => onSelectSub('invite_staff')}
+            className="inline-flex items-center gap-2 px-4 py-2 typo-button text-white bg-[#1265C8] hover:bg-[#102B50] rounded-md transition-colors whitespace-nowrap"
+          >
+            <MailPlus className="w-4 h-4" />
+            Invite Department Staff
+          </button>
+        </div>
       </div>
 
       {/* Subpage Selector */}
@@ -382,13 +407,24 @@ export function StaffManagementView({
             key={sub.id}
             type="button"
             onClick={() => onSelectSub(sub.id)}
-            className={`px-3 py-1.5 typo-nav rounded-md whitespace-nowrap transition-colors shrink-0 ${
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 typo-nav rounded-md whitespace-nowrap transition-colors shrink-0 ${
               subId === sub.id
                 ? 'bg-[#1265C8] text-white font-semibold'
                 : 'bg-white border border-slate-200 text-[#172B46] hover:bg-[#E9F2FF]'
             }`}
           >
-            {sub.label}
+            <span>{sub.label}</span>
+            {sub.id === 'staff_verification' && pendingVerificationStaff.length > 0 ? (
+              <span
+                className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold tabular-nums ${
+                  subId === sub.id
+                    ? 'bg-white text-[#1265C8]'
+                    : 'bg-amber-100 text-[#B7791F]'
+                }`}
+              >
+                {pendingVerificationStaff.length}
+              </span>
+            ) : null}
           </button>
         ))}
       </div>
@@ -404,52 +440,24 @@ export function StaffManagementView({
         </div>
       ) : null}
 
-      {/* Issued Single-Use Invitation Link Banner */}
-      {issuedLinkBanner ? (
-        <div className="bg-white border-2 border-[#1265C8] rounded-lg p-5 space-y-3">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h3 className="typo-card-heading text-[#172B46]">
-                Single-Use Invitation Link Issued for {issuedLinkBanner.email}
-              </h3>
-              <p className="typo-meta text-[#75869D] mt-0.5">
-                Department: <span className="font-medium text-[#172B46]">{issuedLinkBanner.departmentLabel}</span>{' '}
-                · Email Delivery: <StatusText status={issuedLinkBanner.deliveryStatus} />
-              </p>
-              <p className="typo-meta text-[#75869D] mt-1">{issuedLinkBanner.deliveryDetail}</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setIssuedLinkBanner(null)}
-              className="p-1 text-[#75869D] hover:text-[#172B46]"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-          <div className="flex items-center gap-2 bg-[#F3F6FA] border border-slate-200 rounded-md p-2.5">
-            <code className="typo-meta font-mono text-[#102B50] break-all flex-1">
-              {issuedLinkBanner.inviteUrl}
-            </code>
-            <button
-              type="button"
-              onClick={() => void handleCopyInviteUrl(issuedLinkBanner.inviteUrl)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 typo-button text-white bg-[#1265C8] hover:bg-[#102B50] rounded-md shrink-0"
-            >
-              {copiedUrl ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-              {copiedUrl ? 'Copied' : 'Copy Link'}
-            </button>
-          </div>
-        </div>
-      ) : null}
-
       {/* Summary Strip */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <div className="bg-white border border-slate-200 rounded-lg p-4">
           <p className="typo-meta text-[#75869D]">Total Staff Accounts</p>
           <p className="mt-1 font-sans tabular-nums text-[20px] font-semibold text-[#172B46]">
             {departmentStaffList.length}
           </p>
         </div>
+        <button
+          type="button"
+          onClick={() => onSelectSub('staff_verification')}
+          className="text-left bg-white border border-slate-200 hover:border-amber-400 rounded-lg p-4 transition-colors"
+        >
+          <p className="typo-meta text-[#75869D]">Pending Verification</p>
+          <p className="mt-1 font-sans tabular-nums text-[20px] font-semibold text-[#B7791F]">
+            {pendingVerificationStaff.length}
+          </p>
+        </button>
         <div className="bg-white border border-slate-200 rounded-lg p-4">
           <p className="typo-meta text-[#75869D]">Active Staff</p>
           <p className="mt-1 font-sans tabular-nums text-[20px] font-semibold text-[#15966B]">
@@ -457,339 +465,254 @@ export function StaffManagementView({
           </p>
         </div>
         <div className="bg-white border border-slate-200 rounded-lg p-4">
-          <p className="typo-meta text-[#75869D]">Pending Invitations</p>
-          <p className="mt-1 font-sans tabular-nums text-[20px] font-semibold text-[#B7791F]">
-            {invitations.filter((i) => getEffectiveInviteStatus(i) === 'pending').length}
+          <p className="typo-meta text-[#75869D]">Active Invitations</p>
+          <p className="mt-1 font-sans tabular-nums text-[20px] font-semibold text-[#1265C8]">
+            {activeInvitationsCount}
           </p>
         </div>
         <div className="bg-white border border-slate-200 rounded-lg p-4">
-          <p className="typo-meta text-[#75869D]">Suspended / Deactivated</p>
+          <p className="typo-meta text-[#75869D]">Suspended / Rejected</p>
           <p className="mt-1 font-sans tabular-nums text-[20px] font-semibold text-[#D34552]">
-            {departmentStaffList.filter((s) => s.status !== 'active').length}
+            {
+              departmentStaffList.filter(
+                (s) => s.status !== 'active' && s.status !== 'pending_verification'
+              ).length
+            }
           </p>
         </div>
       </div>
 
-      {/* Subpage 2: Invite Staff */}
-      {subId === 'invite_staff' ? (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <form
-            onSubmit={handleCreateInvitation}
-            className="lg:col-span-2 bg-white border border-slate-200 rounded-lg p-6 space-y-5"
-          >
-            <div>
-              <h2 className="typo-card-heading text-[#172B46]">
-                Send Private Department Staff Invitation
-              </h2>
-              <p className="typo-meta text-[#75869D] mt-0.5">
-                Generates a cryptographically signed single-use token hashed in Firestore. Staff
-                cannot alter their assigned department during registration.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      {/* Subpage: Staff Verification Queue & Audit Trail */}
+      {subId === 'staff_verification' ? (
+        <div className="space-y-6">
+          <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div>
-                <label className="block typo-label text-[#172B46] mb-1">
-                  Staff Full Name
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={invFullName}
-                  onChange={(e) => setInvFullName(e.target.value)}
-                  placeholder="Jane Wanjiku"
-                  className="w-full px-3 py-2 typo-input border border-slate-300 rounded-md focus:outline-none focus:border-[#1265C8]"
-                />
-              </div>
-
-              <div>
-                <label className="block typo-label text-[#172B46] mb-1">
-                  Staff Email Address
-                </label>
-                <input
-                  type="email"
-                  required
-                  value={invEmail}
-                  onChange={(e) => setInvEmail(e.target.value)}
-                  placeholder="staff.member@swastasks.com"
-                  className="w-full px-3 py-2 typo-input border border-slate-300 rounded-md focus:outline-none focus:border-[#1265C8]"
-                />
-              </div>
-
-              <div>
-                <label className="block typo-label text-[#172B46] mb-1">
-                  Phone Number
-                </label>
-                <input
-                  type="tel"
-                  required
-                  value={invPhone}
-                  onChange={(e) => setInvPhone(e.target.value)}
-                  placeholder="+254712345678"
-                  className="w-full px-3 py-2 typo-input border border-slate-300 rounded-md focus:outline-none focus:border-[#1265C8]"
-                />
-              </div>
-
-              <div>
-                <label className="block typo-label text-[#172B46] mb-1">
-                  Invitation Expiry Period
-                </label>
-                <select
-                  value={invExpiryHours}
-                  onChange={(e) => setInvExpiryHours(Number(e.target.value))}
-                  className="w-full px-3 py-2 typo-input border border-slate-300 rounded-md bg-white"
-                >
-                  <option value={12}>12 Hours</option>
-                  <option value={24}>24 Hours</option>
-                  <option value={48}>48 Hours (Recommended)</option>
-                  <option value={72}>72 Hours</option>
-                  <option value={168}>7 Days</option>
-                  <option value={336}>14 Days</option>
-                  <option value={720}>30 Days</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block typo-label text-[#172B46] mb-1">
-                  Assigned Department
-                </label>
-                <select
-                  value={invDepartment}
-                  onChange={(e) => {
-                    const nextDept = e.target.value as EightDepartmentId;
-                    setInvDepartment(nextDept);
-                    setInvRole(DEPARTMENT_ROLE_PRESETS[nextDept][0]);
-                  }}
-                  className="w-full px-3 py-2 typo-input border border-slate-300 rounded-md bg-white"
-                >
-                  {EIGHT_DEPARTMENTS.map((dept) => (
-                    <option key={dept.id} value={dept.id}>
-                      {dept.label} — {dept.workplaceTitle}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block typo-label text-[#172B46] mb-1">
-                  Department Role
-                </label>
-                <select
-                  value={invRole}
-                  onChange={(e) => setInvRole(e.target.value)}
-                  className="w-full px-3 py-2 typo-input border border-slate-300 rounded-md bg-white"
-                >
-                  {DEPARTMENT_ROLE_PRESETS[invDepartment].map((roleName) => (
-                    <option key={roleName} value={roleName}>
-                      {roleName}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div>
-              <label className="block typo-label text-[#172B46] mb-2">
-                Granular Permissions
-              </label>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                {GRANULAR_PERMISSIONS.map((perm) => {
-                  const checked = invPermissions.includes(perm.id);
-                  return (
-                    <label
-                      key={perm.id}
-                      className={`flex items-start gap-2 p-2.5 rounded-md border typo-meta cursor-pointer ${
-                        checked
-                          ? 'bg-[#E9F2FF]/60 border-[#1265C8] text-[#172B46]'
-                          : 'bg-white border-slate-200 text-[#75869D]'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={(e) => {
-                          setInvPermissions((prev) =>
-                            e.target.checked
-                              ? [...prev, perm.id]
-                              : prev.filter((p) => p !== perm.id)
-                          );
-                        }}
-                        className="mt-0.5"
-                      />
-                      <span>
-                        <span className="font-semibold text-[#172B46] block">{perm.label}</span>
-                        <span className="typo-small text-[#75869D]">{perm.description}</span>
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="flex justify-end pt-2 border-t border-slate-200">
-              <button
-                type="submit"
-                disabled={invBusy}
-                className="inline-flex items-center gap-2 px-5 py-2.5 typo-button text-white bg-[#1265C8] hover:bg-[#102B50] rounded-md disabled:opacity-60"
-              >
-                <MailPlus className="w-4 h-4" />
-                {invBusy ? 'Generating Secure Invitation...' : 'Generate & Send Invitation'}
-              </button>
-            </div>
-          </form>
-
-          {/* Delivery Service Configuration Card */}
-          <div className="bg-white border border-slate-200 rounded-lg p-5 space-y-4 h-fit">
-            <h3 className="typo-card-heading text-[#172B46]">
-              Verification & Delivery Services
-            </h3>
-            <div className="space-y-3 typo-meta">
-              <div className="p-3 rounded-md bg-[#F3F6FA] border border-slate-200 space-y-1">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-medium text-[#172B46]">Email Invitation Delivery</span>
-                  <StatusText
-                    status={messagingStatus?.emailConfigured ? 'connected' : 'not_configured'}
-                    label={
-                      messagingStatus?.emailConfigured
-                        ? 'Configured'
-                        : 'EMAIL SERVICE NOT CONFIGURED'
-                    }
-                  />
-                </div>
-                <p className="text-[#75869D]">
-                  Sender:{' '}
-                  <span className="font-mono text-[#172B46]">
-                    SWAS TASKS &lt;{messagingStatus?.officialEmail || 'swastaskorg@gmail.com'}&gt;
-                  </span>
-                </p>
-                <p className="text-[#75869D]">
-                  Provider:{' '}
-                  <span className="font-medium text-[#172B46]">
-                    {messagingStatus?.emailProvider || 'EMAIL SERVICE NOT CONFIGURED'}
-                  </span>
-                  .{' '}
-                  {messagingStatus?.emailConfigured
-                    ? 'Invitations are dispatched automatically by email.'
-                    : 'Set GMAIL_SMTP_USER & GMAIL_APP_PASSWORD (or SMTP/Resend env vars) to dispatch automatically; until then, copy the one-time link directly after creation.'}
+                <h2 className="typo-card-heading text-[#172B46]">
+                  Super Admin Staff Verification Queue
+                </h2>
+                <p className="typo-meta text-[#75869D]">
+                  Newly registered staff accounts remain blocked until reviewed and approved by the
+                  Super Administrator.
                 </p>
               </div>
-
-              <div className="p-3 rounded-md bg-[#F3F6FA] border border-slate-200 space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="font-medium text-[#172B46]">SMS Phone OTP</span>
-                  <StatusText
-                    status={messagingStatus?.smsConfigured ? 'connected' : 'not_configured'}
-                    label={messagingStatus?.smsConfigured ? 'Configured' : 'Not Configured'}
-                  />
-                </div>
-                <p className="text-[#75869D]">
-                  Provider: <span className="font-medium text-[#172B46]">{messagingStatus?.smsProvider || 'Twilio'}</span>.{' '}
-                  {messagingStatus?.smsConfigured
-                    ? 'Invited staff must pass SMS OTP alongside Firebase Email Verification.'
-                    : 'Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_FROM_NUMBER to require SMS OTP.'}
-                </p>
-              </div>
-
-              <div className="p-3 rounded-md bg-[#F3F6FA] border border-slate-200 space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="font-medium text-[#172B46]">Firebase Email Verification</span>
-                  <StatusText status="operational" label="Active" />
-                </div>
-                <p className="text-[#75869D]">
-                  Enforced server-side before any invited staff member can activate their workplace.
-                </p>
+              <div className="flex items-center gap-1.5">
+                {(
+                  [
+                    { id: 'pending_verification', label: `Pending (${pendingVerificationStaff.length})` },
+                    {
+                      id: 'rejected',
+                      label: `Rejected (${adminUsers.filter((u) => u.status === 'rejected').length})`,
+                    },
+                    { id: 'reviewed', label: 'All Reviewed' },
+                  ] as const
+                ).map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setVerificationFilter(tab.id)}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                      verificationFilter === tab.id
+                        ? 'bg-[#102B50] text-white'
+                        : 'bg-[#F3F6FA] text-[#172B46] hover:bg-[#E9F2FF]'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
               </div>
             </div>
-          </div>
-        </div>
-      ) : subId === 'pending_invitations' ? (
-        /* Subpage 4: Invitations Lifecycle */
-        <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-          <div className="px-5 py-4 border-b border-slate-200">
-            <h2 className="font-heading text-base font-semibold text-[#172B46]">
-              Staff Invitations (Pending, Accepted, Expired & Revoked)
-            </h2>
-            <p className="text-xs text-[#75869D]">
-              Only SHA-256 HMAC hashes of invitation tokens are stored in Firestore{' '}
-              <span className="font-mono">staff_invitations</span>.
-            </p>
-          </div>
-          {sortedInvitations.length === 0 ? (
-            <EmptyState
-              title="No Staff Invitations Issued"
-              description="Use Invite Staff to issue a single-use, department-locked invitation link."
-            />
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-[13px]">
-                <thead className="bg-[#F3F6FA] text-[#75869D] text-left">
-                  <tr>
-                    <th className="px-4 py-3 font-medium">Invitee</th>
-                    <th className="px-4 py-3 font-medium">Department & Role</th>
-                    <th className="px-4 py-3 font-medium">Permissions</th>
-                    <th className="px-4 py-3 font-medium">Delivery</th>
-                    <th className="px-4 py-3 font-medium">Status</th>
-                    <th className="px-4 py-3 font-medium">Expires</th>
-                    <th className="px-4 py-3 font-medium text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {sortedInvitations.map((inv) => {
-                    const effectiveStatus = getEffectiveInviteStatus(inv);
-                    return (
-                      <tr key={inv.invitationId} className="hover:bg-slate-50">
+
+            {verificationQueueList.length === 0 ? (
+              <EmptyState
+                title={
+                  verificationFilter === 'pending_verification'
+                    ? 'No Staff Accounts Pending Verification'
+                    : 'No Matching Verification Records'
+                }
+                description="When an invited staff member completes registration via a /join/ link, their account appears here for Super Admin verification."
+              />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full typo-table">
+                  <thead className="bg-[#F3F6FA] text-[#75869D] text-left">
+                    <tr>
+                      <th className="px-4 py-3 font-medium">Staff Applicant</th>
+                      <th className="px-4 py-3 font-medium">Invited Department & Role</th>
+                      <th className="px-4 py-3 font-medium">Checks</th>
+                      <th className="px-4 py-3 font-medium">Status</th>
+                      <th className="px-4 py-3 font-medium">Registered</th>
+                      <th className="px-4 py-3 font-medium text-right">Verification Decision</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {verificationQueueList.map((staff) => (
+                      <tr key={staff.uid} className="hover:bg-slate-50">
                         <td className="px-4 py-3">
-                          <p className="font-medium text-[#172B46]">{inv.fullName}</p>
-                          <p className="typo-meta text-[#75869D]">{inv.email}</p>
-                          <p className="typo-small tabular-nums text-[#75869D]">{inv.phone}</p>
+                          <p className="font-medium text-[#172B46]">{staff.displayName}</p>
+                          <p className="typo-meta text-[#75869D]">{staff.email}</p>
+                          {staff.phone ? (
+                            <p className="typo-small tabular-nums text-[#75869D]">{staff.phone}</p>
+                          ) : null}
+                          {staff.invitationId ? (
+                            <p className="typo-small font-mono text-[#75869D] mt-0.5">
+                              {staff.invitationId}
+                            </p>
+                          ) : null}
                         </td>
                         <td className="px-4 py-3">
-                          <p className="font-medium text-[#172B46]">{deptLabel(inv.department)}</p>
-                          <p className="typo-meta text-[#75869D]">{inv.departmentRole}</p>
+                          <p className="font-medium text-[#172B46]">
+                            {deptLabel(staff.primaryDepartment || staff.departments[0])}
+                          </p>
+                          <p className="typo-meta text-[#1265C8] font-medium">{staff.role}</p>
+                          <p className="typo-small text-[#75869D] max-w-xs truncate">
+                            {(staff.actions || []).join(', ')}
+                          </p>
                         </td>
-                        <td className="px-4 py-3 typo-meta text-[#75869D]">
-                          {inv.permissions.join(', ')}
+                        <td className="px-4 py-3 typo-small space-y-0.5">
+                          <p className={staff.emailVerified ? 'text-[#15966B]' : 'text-[#B7791F]'}>
+                            Email: {staff.emailVerified ? 'Verified' : 'Unverified'}
+                          </p>
+                          <p className={staff.phoneVerified ? 'text-[#15966B]' : 'text-[#75869D]'}>
+                            Phone: {staff.phoneVerified ? 'OTP Verified' : staff.phone ? 'Provided' : 'N/A'}
+                          </p>
                         </td>
                         <td className="px-4 py-3">
-                          <StatusText status={inv.emailDeliveryStatus || 'not_configured'} />
-                        </td>
-                        <td className="px-4 py-3">
-                          <StatusText status={effectiveStatus} />
+                          <StatusText status={staff.status} />
+                          {staff.rejectionReason ? (
+                            <p className="typo-small text-[#D34552] mt-0.5 max-w-[200px] truncate">
+                              {staff.rejectionReason}
+                            </p>
+                          ) : null}
                         </td>
                         <td className="px-4 py-3 tabular-nums typo-meta text-[#75869D]">
-                          {new Date(inv.expiresAt).toLocaleString()}
+                          {new Date(staff.registeredAt || staff.createdAt).toLocaleString()}
                         </td>
                         <td className="px-4 py-3 text-right space-x-2 whitespace-nowrap">
-                          {effectiveStatus !== 'accepted' ? (
-                            <button
-                              type="button"
-                              onClick={() => void handleResendInvite(inv)}
-                              className="inline-flex items-center gap-1 text-xs font-medium text-[#1265C8] hover:underline"
-                            >
-                              <RefreshCw className="w-3 h-3" />
-                              Resend
-                            </button>
-                          ) : null}
-                          {effectiveStatus === 'pending' ? (
-                            <button
-                              type="button"
-                              onClick={() => handleRevokeInvite(inv)}
-                              className="text-xs font-medium text-[#D34552] hover:underline"
-                            >
-                              Revoke
-                            </button>
-                          ) : null}
+                          {isSuperAdmin ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => openVerificationModal(staff)}
+                                className="inline-flex items-center gap-1 text-xs font-medium text-[#172B46] hover:text-[#1265C8]"
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                                Inspect
+                              </button>
+                              {staff.status !== 'active' ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleQuickApprove(staff)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-white bg-[#15966B] hover:bg-[#102B50] rounded"
+                                >
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  Approve & Activate
+                                </button>
+                              ) : null}
+                              {staff.status === 'pending_verification' ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRejectStaff(staff)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-white bg-[#D34552] hover:bg-[#b53743] rounded"
+                                >
+                                  <XCircle className="w-3.5 h-3.5" />
+                                  Reject
+                                </button>
+                              ) : null}
+                            </>
+                          ) : (
+                            <span className="text-xs text-[#75869D]">Super Admin Only</span>
+                          )}
                         </td>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Immutable Staff Verification Audit Trail */}
+          <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-200 flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-[#1265C8]" />
+              <div>
+                <h3 className="typo-card-heading text-[#172B46]">
+                  Staff Verification Audit Trail
+                </h3>
+                <p className="typo-meta text-[#75869D]">
+                  Immutable record of every registration, Super Admin approval, rejection, and
+                  account activation decision.
+                </p>
+              </div>
             </div>
-          )}
+            {sortedVerificationAudits.length === 0 ? (
+              <EmptyState
+                title="No Verification Audits Yet"
+                description="Registration submissions and Super Admin approval/rejection decisions will appear here."
+              />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full typo-table">
+                  <thead className="bg-[#F3F6FA] text-[#75869D] text-left">
+                    <tr>
+                      <th className="px-4 py-3 font-medium">Staff Member</th>
+                      <th className="px-4 py-3 font-medium">Department & Role</th>
+                      <th className="px-4 py-3 font-medium">Decision</th>
+                      <th className="px-4 py-3 font-medium">Decided By</th>
+                      <th className="px-4 py-3 font-medium">Reason / Note</th>
+                      <th className="px-4 py-3 font-medium text-right">Timestamp</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {sortedVerificationAudits.map((audit) => (
+                      <tr key={audit.auditId} className="hover:bg-slate-50">
+                        <td className="px-4 py-3">
+                          <p className="font-medium text-[#172B46]">{audit.staffName}</p>
+                          <p className="typo-meta text-[#75869D]">{audit.staffEmail}</p>
+                        </td>
+                        <td className="px-4 py-3">
+                          <p className="font-medium text-[#172B46]">
+                            {deptLabel(audit.department)}
+                          </p>
+                          <p className="typo-meta text-[#75869D]">{audit.assignedRole}</p>
+                        </td>
+                        <td className="px-4 py-3">
+                          <StatusText status={audit.decision} />
+                        </td>
+                        <td className="px-4 py-3 typo-meta text-[#172B46]">
+                          {audit.decidedByName || audit.decidedByUid}
+                        </td>
+                        <td className="px-4 py-3 typo-meta text-[#75869D] max-w-xs">
+                          {audit.decisionReason || '—'}
+                        </td>
+                        <td className="px-4 py-3 text-right tabular-nums typo-meta text-[#75869D]">
+                          {new Date(audit.createdAt).toLocaleString()}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
+      ) : subId === 'invite_staff' ? (
+        <DepartmentInvitationsPanel
+          mode="create"
+          invitations={invitations}
+          onSuccessMessage={(m) => setActionSuccess(m)}
+          onErrorMessage={(m) => setActionError(m)}
+        />
+      ) : subId === 'pending_invitations' ? (
+        <DepartmentInvitationsPanel
+          mode="list"
+          invitations={invitations}
+          onSuccessMessage={(m) => setActionSuccess(m)}
+          onErrorMessage={(m) => setActionError(m)}
+        />
       ) : subId === 'department_assignments' ? (
-        /* Subpage 3: Department Assignments Matrix */
+        /* Subpage: Department Assignments Matrix */
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {EIGHT_DEPARTMENTS.map((dept) => {
             const members = departmentStaffList.filter(
@@ -799,9 +722,7 @@ export function StaffManagementView({
               <div key={dept.id} className="bg-white border border-slate-200 rounded-lg p-5 space-y-3">
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <h3 className="typo-card-heading text-[#172B46]">
-                      {dept.label}
-                    </h3>
+                    <h3 className="typo-card-heading text-[#172B46]">{dept.label}</h3>
                     <p className="typo-meta text-[#75869D]">{dept.workplaceTitle}</p>
                   </div>
                   <span className="tabular-nums typo-meta font-semibold text-[#1265C8]">
@@ -810,7 +731,8 @@ export function StaffManagementView({
                 </div>
                 {members.length === 0 ? (
                   <p className="text-xs text-[#75869D] py-2">
-                    No dedicated staff assigned yet. Only Super Administrator accesses this workplace.
+                    No dedicated staff assigned yet. Only Super Administrator accesses this
+                    workplace.
                   </p>
                 ) : (
                   <div className="divide-y divide-slate-100 border-t border-slate-100">
@@ -824,7 +746,15 @@ export function StaffManagementView({
                         </div>
                         <div className="flex items-center gap-3 shrink-0">
                           <StatusText status={m.status} />
-                          {isSuperAdmin && m.role !== 'SUPER_ADMIN' ? (
+                          {isSuperAdmin && m.status === 'pending_verification' ? (
+                            <button
+                              type="button"
+                              onClick={() => openVerificationModal(m)}
+                              className="text-[#B7791F] font-semibold hover:underline"
+                            >
+                              Verify
+                            </button>
+                          ) : isSuperAdmin && m.role !== 'SUPER_ADMIN' ? (
                             <button
                               type="button"
                               onClick={() => openEditStaffModal(m)}
@@ -843,7 +773,7 @@ export function StaffManagementView({
           })}
         </div>
       ) : subId === 'staff_roles' ? (
-        /* Subpage 8: Staff Roles Matrix */
+        /* Subpage: Staff Roles Matrix */
         <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-200">
             <h2 className="typo-card-heading text-[#172B46]">
@@ -852,7 +782,10 @@ export function StaffManagementView({
           </div>
           <div className="divide-y divide-slate-100">
             {Object.values(ROLE_DEFINITIONS).map((r) => (
-              <div key={r.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div
+                key={r.id}
+                className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+              >
                 <div>
                   <p className="typo-body font-semibold text-[#172B46]">{r.label}</p>
                   <p className="typo-meta text-[#75869D] mt-0.5">{r.description}</p>
@@ -865,7 +798,7 @@ export function StaffManagementView({
           </div>
         </div>
       ) : subId === 'permissions' ? (
-        /* Subpage 9: Granular Permissions Reference */
+        /* Subpage: Granular Permissions Reference */
         <div className="bg-white border border-slate-200 rounded-lg p-5 space-y-4">
           <div>
             <h2 className="typo-card-heading text-[#172B46]">
@@ -878,21 +811,30 @@ export function StaffManagementView({
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {GRANULAR_PERMISSIONS.map((perm) => (
               <div key={perm.id} className="p-3.5 rounded-md border border-slate-200 bg-[#F3F6FA]">
-                <p className="typo-meta font-semibold text-[#1265C8] uppercase">
-                  {perm.label}
-                </p>
+                <p className="typo-meta font-semibold text-[#1265C8] uppercase">{perm.label}</p>
                 <p className="typo-meta text-[#172B46] mt-1">{perm.description}</p>
               </div>
             ))}
           </div>
+          <div className="pt-3 border-t border-slate-200">
+            <h3 className="typo-card-heading text-[#172B46] mb-3">
+              Email Communication Centre Permissions
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {EMAIL_GRANULAR_PERMISSIONS.map((perm) => (
+                <div key={perm.id} className="p-3.5 rounded-md border border-slate-200 bg-[#F3F6FA]">
+                  <p className="typo-meta font-mono font-semibold text-[#1265C8]">{perm.label}</p>
+                  <p className="typo-meta text-[#172B46] mt-1">{perm.description}</p>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       ) : subId === 'login_history' ? (
-        /* Subpage 10: Staff Login History */
+        /* Subpage: Staff Login History */
         <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-200">
-            <h2 className="typo-card-heading text-[#172B46]">
-              Staff Login & Session History
-            </h2>
+            <h2 className="typo-card-heading text-[#172B46]">Staff Login & Session History</h2>
           </div>
           {sortedLoginHistory.length === 0 ? (
             <EmptyState
@@ -933,7 +875,7 @@ export function StaffManagementView({
           )}
         </div>
       ) : subId === 'staff_activity_logs' ? (
-        /* Subpage 11: Staff Activity Logs */
+        /* Subpage: Staff Activity Logs */
         <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-200">
             <h2 className="typo-card-heading text-[#172B46]">
@@ -943,7 +885,7 @@ export function StaffManagementView({
           {staffLogs.length === 0 ? (
             <EmptyState
               title="No Staff Governance Events"
-              description="Invitations, permission updates, department transfers, and session revocations are logged here."
+              description="Invitations, verification approvals, permission updates, and session revocations are logged here."
             />
           ) : (
             <div className="overflow-x-auto">
@@ -981,7 +923,7 @@ export function StaffManagementView({
           )}
         </div>
       ) : (
-        /* Subpages 1, 5, 6, 7: All Staff / Active / Suspended / Deactivated */
+        /* Subpages: All Staff / Active / Suspended / Deactivated */
         <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-200">
             <h2 className="typo-card-heading text-[#172B46]">
@@ -991,7 +933,7 @@ export function StaffManagementView({
           {filteredStaff.length === 0 ? (
             <EmptyState
               title="No Matching Staff Accounts"
-              description="No authorized staff accounts match this status filter yet."
+              description="No staff accounts match this status filter yet."
             />
           ) : (
             <div className="overflow-x-auto">
@@ -1028,7 +970,7 @@ export function StaffManagementView({
                         </td>
                         <td className="px-4 py-3">
                           <p className="typo-meta font-medium text-[#102B50]">{staff.role}</p>
-                          <p className="typo-small text-[#75869D]">
+                          <p className="typo-small text-[#75869D] max-w-xs truncate">
                             {(staff.actions || []).join(', ')}
                           </p>
                         </td>
@@ -1037,78 +979,99 @@ export function StaffManagementView({
                         </td>
                         <td className="px-4 py-3 text-right space-x-2 whitespace-nowrap">
                           {isSuperAdmin && staff.role !== 'SUPER_ADMIN' ? (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => openEditStaffModal(staff)}
-                                className="text-xs font-medium text-[#1265C8] hover:underline"
-                              >
-                                Edit / Transfer
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleRevokeSession(staff)}
-                                className="inline-flex items-center gap-1 text-xs font-medium text-[#75869D] hover:text-[#172B46]"
-                              >
-                                <KeyRound className="w-3 h-3" />
-                                Revoke Session
-                              </button>
-                              {staff.status === 'active' ? (
-                                <>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleQuickStatusChange(
-                                        staff,
-                                        'suspended',
-                                        'Suspend Department Staff',
-                                        `Suspend ${staff.displayName}? Their active session will be revoked immediately.`,
-                                        true
-                                      )
-                                    }
-                                    className="inline-flex items-center gap-1 text-xs font-medium text-[#B7791F] hover:underline"
-                                  >
-                                    <UserMinus className="w-3 h-3" />
-                                    Suspend
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleQuickStatusChange(
-                                        staff,
-                                        'deactivated',
-                                        'Deactivate Department Staff',
-                                        `Deactivate ${staff.displayName}? They will no longer be permitted to open their workplace.`,
-                                        true
-                                      )
-                                    }
-                                    className="inline-flex items-center gap-1 text-xs font-medium text-[#D34552] hover:underline"
-                                  >
-                                    <UserX className="w-3 h-3" />
-                                    Deactivate
-                                  </button>
-                                </>
-                              ) : (
+                            staff.status === 'pending_verification' ? (
+                              <>
                                 <button
                                   type="button"
-                                  onClick={() =>
-                                    handleQuickStatusChange(
-                                      staff,
-                                      'active',
-                                      'Reactivate Department Staff',
-                                      `Restore active access for ${staff.displayName} in ${deptLabel(
-                                        staff.primaryDepartment || staff.departments[0]
-                                      )}?`,
-                                      false
-                                    )
-                                  }
-                                  className="inline-flex items-center gap-1 text-xs font-medium text-[#15966B] hover:underline"
+                                  onClick={() => openVerificationModal(staff)}
+                                  className="inline-flex items-center gap-1 text-xs font-semibold text-[#15966B] hover:underline"
                                 >
-                                  <UserCheck className="w-3 h-3" />
-                                  Activate
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  Verify & Approve
                                 </button>
-                              )}
-                            </>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRejectStaff(staff)}
+                                  className="inline-flex items-center gap-1 text-xs font-medium text-[#D34552] hover:underline"
+                                >
+                                  <XCircle className="w-3.5 h-3.5" />
+                                  Reject
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => openEditStaffModal(staff)}
+                                  className="text-xs font-medium text-[#1265C8] hover:underline"
+                                >
+                                  Edit / Transfer
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRevokeSession(staff)}
+                                  className="inline-flex items-center gap-1 text-xs font-medium text-[#75869D] hover:text-[#172B46]"
+                                >
+                                  <KeyRound className="w-3 h-3" />
+                                  Revoke Session
+                                </button>
+                                {staff.status === 'active' ? (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleQuickStatusChange(
+                                          staff,
+                                          'suspended',
+                                          'Suspend Department Staff',
+                                          `Suspend ${staff.displayName}? Their active session will be revoked immediately.`,
+                                          true
+                                        )
+                                      }
+                                      className="inline-flex items-center gap-1 text-xs font-medium text-[#B7791F] hover:underline"
+                                    >
+                                      <UserMinus className="w-3 h-3" />
+                                      Suspend
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleQuickStatusChange(
+                                          staff,
+                                          'deactivated',
+                                          'Deactivate Department Staff',
+                                          `Deactivate ${staff.displayName}? They will no longer be permitted to open their workplace.`,
+                                          true
+                                        )
+                                      }
+                                      className="inline-flex items-center gap-1 text-xs font-medium text-[#D34552] hover:underline"
+                                    >
+                                      <UserX className="w-3 h-3" />
+                                      Deactivate
+                                    </button>
+                                  </>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleQuickStatusChange(
+                                        staff,
+                                        'active',
+                                        'Reactivate Department Staff',
+                                        `Restore active access for ${staff.displayName} in ${deptLabel(
+                                          staff.primaryDepartment || staff.departments[0]
+                                        )}?`,
+                                        false
+                                      )
+                                    }
+                                    className="inline-flex items-center gap-1 text-xs font-medium text-[#15966B] hover:underline"
+                                  >
+                                    <UserCheck className="w-3 h-3" />
+                                    Activate
+                                  </button>
+                                )}
+                              </>
+                            )
                           ) : isSelfSuper ? (
                             <span className="text-xs text-[#75869D]">Primary Super Admin</span>
                           ) : (
@@ -1124,6 +1087,174 @@ export function StaffManagementView({
           )}
         </div>
       )}
+
+      {/* Super Admin Staff Verification Review Modal */}
+      {reviewingStaff ? (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 flex items-center justify-center p-4">
+          <form
+            onSubmit={handleModalApproveSubmit}
+            className="bg-white border border-slate-200 rounded-lg max-w-xl w-full p-6 max-h-[90vh] overflow-y-auto space-y-4"
+          >
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-[#15966B]" />
+                <h3 className="typo-section-heading text-[#172B46]">
+                  Verify & Activate Staff Registration
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReviewingStaff(null)}
+                className="text-[#75869D] hover:text-[#172B46]"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="typo-meta bg-[#F3F6FA] p-3.5 rounded-md border border-slate-200 space-y-1">
+              <div className="flex items-center justify-between">
+                <p className="font-semibold text-[#172B46]">{reviewingStaff.displayName}</p>
+                <StatusText status={reviewingStaff.status} />
+              </div>
+              <p className="text-[#75869D]">
+                {reviewingStaff.email} {reviewingStaff.phone ? `· ${reviewingStaff.phone}` : ''}
+              </p>
+              <p className="text-[#75869D]">
+                Registered:{' '}
+                {new Date(reviewingStaff.registeredAt || reviewingStaff.createdAt).toLocaleString()}
+                {reviewingStaff.invitationId ? ` · Invite: ${reviewingStaff.invitationId}` : ''}
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block typo-label text-[#172B46] mb-1">
+                  Assigned Department
+                </label>
+                <select
+                  value={reviewDept}
+                  onChange={(e) => setReviewDept(e.target.value as EightDepartmentId)}
+                  className="w-full px-3 py-2 typo-input border border-slate-300 rounded-md bg-white"
+                >
+                  {EIGHT_DEPARTMENTS.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block typo-label text-[#172B46] mb-1">Department Role</label>
+                <input
+                  type="text"
+                  required
+                  value={reviewRole}
+                  onChange={(e) => setReviewRole(e.target.value)}
+                  className="w-full px-3 py-2 typo-input border border-slate-300 rounded-md"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block typo-label text-[#172B46] mb-2">
+                Confirm Workplace Permissions
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                {GRANULAR_PERMISSIONS.map((perm) => {
+                  const checked = reviewActions.includes(perm.id);
+                  return (
+                    <label key={perm.id} className="flex items-center gap-2 typo-meta text-[#172B46]">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) =>
+                          setReviewActions((prev) =>
+                            e.target.checked
+                              ? [...prev, perm.id]
+                              : prev.filter((item) => item !== perm.id)
+                          )
+                        }
+                      />
+                      <span>{perm.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div>
+              <label className="block typo-label text-[#172B46] mb-2">
+                Email Communication Centre Permissions
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {EMAIL_GRANULAR_PERMISSIONS.map((perm) => {
+                  const checked = reviewActions.includes(perm.id);
+                  return (
+                    <label key={perm.id} className="flex items-center gap-2 typo-meta text-[#172B46]">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) =>
+                          setReviewActions((prev) =>
+                            e.target.checked
+                              ? [...prev, perm.id]
+                              : prev.filter((item) => item !== perm.id)
+                          )
+                        }
+                      />
+                      <span className="font-mono text-xs">{perm.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div>
+              <label className="block typo-label text-[#172B46] mb-1">
+                Verification Audit Note (Optional)
+              </label>
+              <input
+                type="text"
+                value={reviewNote}
+                onChange={(e) => setReviewNote(e.target.value)}
+                placeholder="Verified staff identity and department assignment."
+                className="w-full px-3 py-2 typo-input border border-slate-300 rounded-md"
+              />
+            </div>
+
+            <div className="flex flex-wrap justify-between gap-3 pt-2 border-t border-slate-200">
+              {reviewingStaff.status === 'pending_verification' ? (
+                <button
+                  type="button"
+                  onClick={() => handleRejectStaff(reviewingStaff)}
+                  className="px-4 py-2 typo-button text-white bg-[#D34552] hover:bg-[#b53743] rounded-md"
+                >
+                  Reject Registration
+                </button>
+              ) : (
+                <span />
+              )}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setReviewingStaff(null)}
+                  className="px-4 py-2 typo-button text-[#172B46] bg-slate-100 rounded-md"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={reviewBusy || reviewActions.length === 0}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 typo-button text-white bg-[#15966B] hover:bg-[#102B50] rounded-md disabled:opacity-60"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  {reviewBusy ? 'Activating...' : 'Approve & Activate Staff'}
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      ) : null}
 
       {/* Edit Staff / Controlled Department Transfer Modal */}
       {editingStaff ? (
@@ -1172,9 +1303,7 @@ export function StaffManagementView({
               </div>
 
               <div>
-                <label className="block typo-label text-[#172B46] mb-1">
-                  Department Role
-                </label>
+                <label className="block typo-label text-[#172B46] mb-1">Department Role</label>
                 <input
                   type="text"
                   required
@@ -1185,9 +1314,7 @@ export function StaffManagementView({
               </div>
 
               <div>
-                <label className="block typo-label text-[#172B46] mb-1">
-                  Account Status
-                </label>
+                <label className="block typo-label text-[#172B46] mb-1">Account Status</label>
                 <select
                   value={editStatus}
                   onChange={(e) =>
@@ -1232,6 +1359,33 @@ export function StaffManagementView({
               </div>
             </div>
 
+            <div>
+              <label className="block typo-label text-[#172B46] mb-2">
+                Email Communication Centre Permissions
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {EMAIL_GRANULAR_PERMISSIONS.map((perm) => {
+                  const checked = editActions.includes(perm.id);
+                  return (
+                    <label key={perm.id} className="flex items-center gap-2 typo-meta text-[#172B46]">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) =>
+                          setEditActions((prev) =>
+                            e.target.checked
+                              ? [...prev, perm.id]
+                              : prev.filter((item) => item !== perm.id)
+                          )
+                        }
+                      />
+                      <span className="font-mono text-xs">{perm.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
             <div className="flex justify-end gap-3 pt-2 border-t border-slate-200">
               <button
                 type="button"
@@ -1245,7 +1399,6 @@ export function StaffManagementView({
                 disabled={editBusy || editActions.length === 0}
                 className="inline-flex items-center gap-1.5 px-4 py-2 typo-button text-white bg-[#1265C8] hover:bg-[#102B50] rounded-md disabled:opacity-60"
               >
-                <ShieldOff className="w-4 h-4 hidden" />
                 {editBusy ? 'Saving...' : 'Save Department Assignment'}
               </button>
             </div>
@@ -1258,7 +1411,10 @@ export function StaffManagementView({
           open={confirmState.open}
           title={confirmState.title}
           description={confirmState.description}
+          confirmLabel={confirmState.confirmLabel}
           danger={confirmState.danger}
+          requireReason={confirmState.requireReason}
+          reasonLabel={confirmState.reasonLabel}
           onCancel={() => setConfirmState(null)}
           onConfirm={confirmState.onConfirm}
         />

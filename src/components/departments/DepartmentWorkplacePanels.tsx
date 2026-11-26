@@ -36,11 +36,25 @@ import type {
 } from '../../types/admin';
 import { EmptyState } from '../common/EmptyState';
 import { StatusText } from '../common/StatusText';
+import { DepartmentInvitationsPanel } from './DepartmentInvitationsPanel';
+import { EmailCentreView } from './EmailCentreView';
+import { GoogleDriveView } from './GoogleDriveView';
 import { StaffProfileView } from './StaffProfileView';
-import type { StaffLoginHistory } from '../../types/admin';
+import type {
+  EmailCampaignRecord,
+  EmailDraftRecord,
+  EmailLogRecord,
+  EmailTemplateRecord,
+  PlatformSetting,
+  StaffInvitation,
+  StaffLoginHistory,
+} from '../../types/admin';
 
 export type WorkplaceTab =
   | 'operations'
+  | 'email'
+  | 'drive'
+  | 'invitations'
   | 'pending_queue'
   | 'notifications'
   | 'communication'
@@ -78,6 +92,12 @@ interface DepartmentWorkplacePanelsProps {
   loginHistory: StaffLoginHistory[];
   notifications: AdminNotification[];
   departmentMessages: DepartmentMessage[];
+  settingsDocs?: PlatformSetting[];
+  emailLogs?: EmailLogRecord[];
+  emailTemplates?: EmailTemplateRecord[];
+  emailDrafts?: EmailDraftRecord[];
+  emailCampaigns?: EmailCampaignRecord[];
+  invitations?: StaffInvitation[];
   children: React.ReactNode;
 }
 
@@ -100,9 +120,18 @@ export function DepartmentWorkplacePanels({
   loginHistory,
   notifications,
   departmentMessages,
+  settingsDocs = [],
+  emailLogs = [],
+  emailTemplates = [],
+  emailDrafts = [],
+  emailCampaigns = [],
+  invitations = [],
   children,
 }: DepartmentWorkplacePanelsProps) {
-  const { adminProfile } = useAuth();
+  const { adminProfile, isSuperAdmin, hasAction, hasEmailPermission } = useAuth();
+  const canViewEmail = hasEmailPermission('email.view');
+  const canManageDeptInvitations = isSuperAdmin || hasAction('manage');
+  const [emailSubTab, setEmailSubTab] = useState('dashboard');
   const deptConfig = EIGHT_DEPARTMENTS.find((d) => d.id === department);
   const DeptIcon = deptConfig ? DEPT_ICON_MAP[deptConfig.iconName] : Users;
 
@@ -286,8 +315,28 @@ export function DepartmentWorkplacePanels({
     }
   };
 
+  const deptActiveInvitesCount = useMemo(() => {
+    return invitations.filter(
+      (i) =>
+        i.department === department &&
+        (i.status === 'pending' || i.status === 'opened') &&
+        new Date(i.expiresAt).getTime() > Date.now()
+    ).length;
+  }, [invitations, department]);
+
   const tabs: { id: WorkplaceTab; label: string; count?: number }[] = [
     { id: 'operations', label: 'Department Operations' },
+    ...(canViewEmail ? [{ id: 'email' as WorkplaceTab, label: 'Department Email' }] : []),
+    { id: 'drive', label: 'Google Drive' },
+    ...(canManageDeptInvitations
+      ? [
+          {
+            id: 'invitations' as WorkplaceTab,
+            label: 'Department Invitations',
+            count: deptActiveInvitesCount,
+          },
+        ]
+      : []),
     { id: 'pending_queue', label: 'Assigned Tasks & Reviews', count: pendingItems.length },
     { id: 'notifications', label: 'Department Notices', count: deptNotifications.filter((n) => !n.read).length },
     { id: 'communication', label: 'Internal Communication', count: deptMessages.length },
@@ -371,6 +420,29 @@ export function DepartmentWorkplacePanels({
         />
       ) : activeTab === 'operations' ? (
         children
+      ) : activeTab === 'email' && canViewEmail ? (
+        <EmailCentreView
+          subId={emailSubTab}
+          onSelectSub={setEmailSubTab}
+          adminProfile={adminProfile}
+          settingsDocs={settingsDocs}
+          emailLogs={emailLogs}
+          emailTemplates={emailTemplates}
+          emailDrafts={emailDrafts}
+          emailCampaigns={emailCampaigns}
+          scopedDepartment={department}
+        />
+      ) : activeTab === 'drive' ? (
+        <GoogleDriveView
+          scopedDepartmentLabel={deptConfig?.label}
+          settingsDocs={settingsDocs}
+        />
+      ) : activeTab === 'invitations' && canManageDeptInvitations ? (
+        <DepartmentInvitationsPanel
+          mode="both"
+          invitations={invitations}
+          lockedDepartment={department}
+        />
       ) : activeTab === 'pending_queue' ? (
         <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-200">

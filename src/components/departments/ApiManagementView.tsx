@@ -6,6 +6,7 @@ import {
   Gauge,
   Globe,
   KeyRound,
+  Mail,
   Plus,
   RefreshCw,
   ShieldAlert,
@@ -24,11 +25,13 @@ import type {
   ApiKeyRecord,
   ApiLogRecord,
   ConnectedApp,
+  EmailTemplateRecord,
   WebhookConfig,
 } from '../../types/admin';
 import { EmptyState } from '../common/EmptyState';
 import { StatusText } from '../common/StatusText';
 import { TablePagination, usePaginatedList } from '../common/TablePagination';
+import { DepartmentEmailModal } from './DepartmentEmailModal';
 
 interface ApiManagementViewProps {
   subId: string;
@@ -37,6 +40,7 @@ interface ApiManagementViewProps {
   connectedApps: ConnectedApp[];
   webhooks: WebhookConfig[];
   apiLogs: ApiLogRecord[];
+  emailTemplates?: EmailTemplateRecord[];
 }
 
 const AVAILABLE_SCOPES = [
@@ -58,10 +62,18 @@ export function ApiManagementView({
   connectedApps,
   webhooks,
   apiLogs,
+  emailTemplates = [],
 }: ApiManagementViewProps) {
-  const { adminProfile, hasAction } = useAuth();
+  const { adminProfile, hasAction, hasEmailPermission } = useAuth();
+  const canEmail = hasEmailPermission('email.send') || hasEmailPermission('email.send_bulk');
   const subdepartments =
     EIGHT_DEPARTMENTS.find((d) => d.id === 'api_management')?.subdepartments || [];
+
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
+  const [emailDefaults, setEmailDefaults] = useState<{ subject: string; body: string }>({
+    subject: '',
+    body: '',
+  });
 
   const [keyName, setKeyName] = useState('');
   const [keyScopes, setKeyScopes] = useState<string[]>(['public:config:read', 'tasks:read']);
@@ -195,13 +207,31 @@ export function ApiManagementView({
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="typo-page-heading text-[#172B46]">
-          API Management
-        </h1>
-        <p className="mt-1 typo-body text-[#75869D]">
-          Cryptographic API credentials, public SWAS TASKS website integration, CORS origins, webhooks, and OpenAPI documentation.
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="typo-page-heading text-[#172B46]">
+            API Management
+          </h1>
+          <p className="mt-1 typo-body text-[#75869D]">
+            Cryptographic API credentials, public SWAS TASKS website integration, CORS origins, webhooks, and OpenAPI documentation.
+          </p>
+        </div>
+        {canEmail ? (
+          <button
+            type="button"
+            onClick={() => {
+              setEmailDefaults({
+                subject: 'SWAS TASKS API Integration Notice',
+                body: 'Hello,\n\nPlease review the following API integration / security update from the SWAS TASKS Central Control Centre:\n\n',
+              });
+              setEmailModalOpen(true);
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-2 typo-button text-[#172B46] bg-white border border-slate-200 hover:bg-[#E9F2FF] rounded-md whitespace-nowrap self-start sm:self-auto"
+          >
+            <Mail className="w-3.5 h-3.5 text-[#1265C8]" />
+            Notify Developer / Admin
+          </button>
+        ) : null}
       </div>
 
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
@@ -591,6 +621,24 @@ export function ApiManagementView({
                     <p className="typo-meta text-[#75869D]">
                       Origins: <span className="font-mono">{app.allowedOrigins.join(', ')}</span>
                     </p>
+                    {canEmail ? (
+                      <div className="pt-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEmailDefaults({
+                              subject: `Integration Update: ${app.name}`,
+                              body: `Hello,\n\nRegarding connected application ${app.name} (${app.websiteUrl}):\n\n`,
+                            });
+                            setEmailModalOpen(true);
+                          }}
+                          className="inline-flex items-center gap-1 text-xs font-medium text-[#1265C8] hover:underline"
+                        >
+                          <Mail className="w-3 h-3" />
+                          Email Integration Contact
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                 ))}
               </div>
@@ -908,6 +956,22 @@ export function ApiManagementView({
                               Revoke
                             </button>
                           ) : null}
+                          {canEmail ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEmailDefaults({
+                                  subject: `API Key Security Notice: ${k.name} (${k.prefix}...)`,
+                                  body: `Hello,\n\nThis notice concerns API credential "${k.name}" (prefix: ${k.prefix}..., status: ${k.status}, rate limit: ${k.rateLimitPerMin}/min):\n\n`,
+                                });
+                                setEmailModalOpen(true);
+                              }}
+                              className="inline-flex items-center gap-1 text-xs font-medium text-[#1265C8] hover:underline"
+                            >
+                              <Mail className="w-3 h-3" />
+                              Email
+                            </button>
+                          ) : null}
                         </td>
                       </tr>
                     ))}
@@ -926,6 +990,14 @@ export function ApiManagementView({
           </div>
         </div>
       )}
+      <DepartmentEmailModal
+        open={emailModalOpen}
+        onClose={() => setEmailModalOpen(false)}
+        department="api_management"
+        templates={emailTemplates}
+        defaultSubject={emailDefaults.subject}
+        defaultBody={emailDefaults.body}
+      />
     </div>
   );
 }

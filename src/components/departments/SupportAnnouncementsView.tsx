@@ -1,9 +1,13 @@
 import React, { useState } from 'react';
 import { Mail, Megaphone, Send } from 'lucide-react';
-import { OFFICIAL_PLATFORM_EMAIL } from '../../config/platformIdentity';
+import {
+  OFFICIAL_PLATFORM_EMAIL,
+  OFFICIAL_SENDER_DISPLAY_NAME,
+} from '../../config/platformIdentity';
 import { useAuth } from '../../context/AuthContext';
 import { apiFetch, updateSupportTicketStatus } from '../../services/firestoreService';
 import type { Announcement, SupportTicket } from '../../types/admin';
+import { ConfirmModal } from '../common/ConfirmModal';
 import { EmptyState } from '../common/EmptyState';
 import { StatusText } from '../common/StatusText';
 
@@ -26,6 +30,7 @@ export function SupportAnnouncementsView({
   const [emailSubject, setEmailSubject] = useState('');
   const [emailBody, setEmailBody] = useState('');
   const [sendingEmail, setSendingEmail] = useState(false);
+  const [confirmEmailOpen, setConfirmEmailOpen] = useState(false);
 
   const [feedback, setFeedback] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
 
@@ -48,13 +53,12 @@ export function SupportAnnouncementsView({
     }
   };
 
-  const handleSendOfficialEmail = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const executeSendOfficialEmail = async () => {
     setSendingEmail(true);
     setFeedback(null);
     try {
       const res = await apiFetch<{
-        delivery: { sent: boolean; status: string; detail: string };
+        delivery: { sent: boolean; status: string; detail: string; error?: string };
       }>('/api/v1/admin/email/dispatch', {
         method: 'POST',
         body: JSON.stringify({
@@ -72,16 +76,24 @@ export function SupportAnnouncementsView({
         setEmailBody('');
         setFeedback({ type: 'ok', text: res.delivery.detail });
       } else {
-        setFeedback({ type: 'err', text: res.delivery.detail });
+        setFeedback({ type: 'err', text: res.delivery.error || res.delivery.detail });
       }
+      setConfirmEmailOpen(false);
     } catch (err) {
       setFeedback({
         type: 'err',
         text: err instanceof Error ? err.message : 'Email dispatch failed',
       });
+      setConfirmEmailOpen(false);
     } finally {
       setSendingEmail(false);
     }
+  };
+
+  const handleSendOfficialEmail = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!emailTo.trim() || !emailSubject.trim() || !emailBody.trim()) return;
+    setConfirmEmailOpen(true);
   };
 
   return (
@@ -175,7 +187,10 @@ export function SupportAnnouncementsView({
               </h2>
             </div>
             <p className="typo-small text-[#75869D]">
-              Sent as <span className="font-mono text-[#172B46]">SWAS TASKS &lt;{OFFICIAL_PLATFORM_EMAIL}&gt;</span>
+              Sent as{' '}
+              <span className="font-mono text-[#172B46]">
+                {OFFICIAL_SENDER_DISPLAY_NAME} &lt;{OFFICIAL_PLATFORM_EMAIL}&gt;
+              </span>
             </p>
             <div>
               <label className="block typo-label text-[#172B46] mb-1">Communication Scope</label>
@@ -312,6 +327,14 @@ export function SupportAnnouncementsView({
           </div>
         </div>
       </div>
+      <ConfirmModal
+        open={confirmEmailOpen}
+        title="Confirm Official Email Dispatch"
+        description={`Send "${emailSubject.trim()}" from ${OFFICIAL_SENDER_DISPLAY_NAME} <${OFFICIAL_PLATFORM_EMAIL}> to ${emailTo.trim()}?`}
+        confirmLabel={sendingEmail ? 'Sending...' : 'Confirm & Send'}
+        onCancel={() => setConfirmEmailOpen(false)}
+        onConfirm={() => void executeSendOfficialEmail()}
+      />
     </div>
   );
 }

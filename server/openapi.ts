@@ -340,6 +340,156 @@ export const openApiSpec = {
         responses: { '200': { description: 'Email dispatch status returned by provider' } },
       },
     },
+    '/admin/users/{id}/status': {
+      post: {
+        tags: ['User Management'],
+        summary: 'Update user status or verification status and trigger automatic email notification',
+        security: [{ FirebaseBearerAuth: [] }],
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { '200': { description: 'User status updated' } },
+      },
+    },
+    '/admin/clients/{id}/status': {
+      post: {
+        tags: ['Client Management'],
+        summary: 'Update client status or verification status and trigger automatic email notification',
+        security: [{ FirebaseBearerAuth: [] }],
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { '200': { description: 'Client status updated' } },
+      },
+    },
+    '/admin/tasks/{id}/moderate': {
+      post: {
+        tags: ['Task Monitoring'],
+        summary: 'Moderate task (publish, reject, remove) and trigger automatic client notification',
+        security: [{ FirebaseBearerAuth: [] }],
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { '200': { description: 'Task moderated' } },
+      },
+    },
+    '/admin/submissions/{id}/review': {
+      post: {
+        tags: ['Bids & Assignments'],
+        summary: 'Approve, request revision, or reject work submission with automatic worker notification',
+        security: [{ FirebaseBearerAuth: [] }],
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { '200': { description: 'Submission reviewed' } },
+      },
+    },
+    '/admin/email/recipients': {
+      get: {
+        tags: ['Email Centre'],
+        summary: 'Fetch live department-scoped email recipients from platform records',
+        security: [{ FirebaseBearerAuth: [] }],
+        responses: { '200': { description: 'Recipient directory entries' } },
+      },
+    },
+    '/admin/email/history': {
+      get: {
+        tags: ['Email Centre'],
+        summary: 'Fetch department-scoped email delivery logs and sync webhook delivery events',
+        security: [{ FirebaseBearerAuth: [] }],
+        responses: { '200': { description: 'Email log records' } },
+      },
+    },
+    '/admin/email/reports': {
+      get: {
+        tags: ['Email Centre'],
+        summary: 'Compute live email analytics, delivery rates, bounce rates, and template usage',
+        security: [{ FirebaseBearerAuth: [] }],
+        responses: { '200': { description: 'Email analytics summary' } },
+      },
+    },
+    '/admin/email/campaigns': {
+      get: {
+        tags: ['Email Centre'],
+        summary: 'List bulk email campaigns scoped by department',
+        security: [{ FirebaseBearerAuth: [] }],
+        responses: { '200': { description: 'Campaign list' } },
+      },
+    },
+    '/admin/email/send-bulk': {
+      post: {
+        tags: ['Email Centre'],
+        summary: 'Execute an individualized bulk personalized email campaign',
+        security: [{ FirebaseBearerAuth: [] }],
+        responses: { '201': { description: 'Campaign queued/executed' } },
+      },
+    },
+    '/admin/email/campaigns/{id}/retry': {
+      post: {
+        tags: ['Email Centre'],
+        summary: 'Retry failed recipients within a bulk email campaign',
+        security: [{ FirebaseBearerAuth: [] }],
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { '200': { description: 'Failed recipients retried' } },
+      },
+    },
+    '/admin/email/schedule': {
+      post: {
+        tags: ['Email Centre'],
+        summary: 'Schedule single or multi-recipient personalized email delivery',
+        security: [{ FirebaseBearerAuth: [] }],
+        responses: { '201': { description: 'Scheduled email records persisted' } },
+      },
+    },
+    '/admin/email/scheduled/{id}/cancel': {
+      post: {
+        tags: ['Email Centre'],
+        summary: 'Cancel a pending scheduled email',
+        security: [{ FirebaseBearerAuth: [] }],
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { '200': { description: 'Scheduled email cancelled' } },
+      },
+    },
+    '/admin/email/process-scheduled': {
+      post: {
+        tags: ['Email Centre'],
+        summary: 'Process due scheduled email jobs',
+        security: [{ FirebaseBearerAuth: [] }],
+        responses: { '200': { description: 'Due scheduled jobs processed' } },
+      },
+    },
+    '/admin/email/templates': {
+      get: {
+        tags: ['Email Centre'],
+        summary: 'List reusable email templates',
+        security: [{ FirebaseBearerAuth: [] }],
+        responses: { '200': { description: 'Template list' } },
+      },
+      post: {
+        tags: ['Email Centre'],
+        summary: 'Create or update a reusable email template',
+        security: [{ FirebaseBearerAuth: [] }],
+        responses: { '201': { description: 'Template saved' } },
+      },
+    },
+    '/admin/email/drafts': {
+      get: {
+        tags: ['Email Centre'],
+        summary: 'List saved email drafts',
+        security: [{ FirebaseBearerAuth: [] }],
+        responses: { '200': { description: 'Draft list' } },
+      },
+      post: {
+        tags: ['Email Centre'],
+        summary: 'Create or update an email draft',
+        security: [{ FirebaseBearerAuth: [] }],
+        responses: { '201': { description: 'Draft saved' } },
+      },
+    },
+    '/webhooks/email-events': {
+      post: {
+        tags: ['Email Centre', 'Webhooks'],
+        summary: 'HMAC/Svix verified provider webhook for delivered, bounced, opened, and clicked events',
+        responses: {
+          '200': { description: 'Webhook event recorded' },
+          '401': { description: 'Missing signature' },
+          '403': { description: 'Invalid HMAC signature' },
+          '503': { description: 'Webhook secret not configured' },
+        },
+      },
+    },
   },
 };
 

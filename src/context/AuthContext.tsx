@@ -10,12 +10,36 @@ import {
 } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
-import { apiFetch } from '../services/firestoreService';
-import type { AdminAction, AdminUser, DepartmentId, EightDepartmentId } from '../types/admin';
+import { ApiError, apiFetch } from '../services/firestoreService';
+import {
+  clearDriveConnection,
+  disconnectGoogleDriveAccount,
+} from '../services/driveOAuth';
+import {
+  clearGmailConnection,
+  disconnectOfficialGmailAccount,
+} from '../services/gmailOAuth';
+import type {
+  AdminAction,
+  AdminUser,
+  DepartmentId,
+  EightDepartmentId,
+  EmailPermission,
+} from '../types/admin';
+
+export interface AccountStatusInfo {
+  status: string;
+  verificationStatus?: string;
+  accessStatus?: string;
+  rejectionReason?: string;
+  department?: string;
+  role?: string;
+}
 
 interface AuthContextValue {
   firebaseUser: User | null;
   adminProfile: AdminUser | null;
+  accountStatusInfo: AccountStatusInfo | null;
   isSuperAdmin: boolean;
   canManageStaff: boolean;
   primaryDepartment: EightDepartmentId | null;
@@ -30,15 +54,24 @@ interface AuthContextValue {
   clearAuthError: () => void;
   hasDepartment: (dept: DepartmentId) => boolean;
   hasAction: (action: AdminAction) => boolean;
+  hasEmailPermission: (perm: EmailPermission) => boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 const SESSION_IDLE_MS = 60 * 60 * 1000;
 
+function isProfileAccessActive(profile: AdminUser | null): boolean {
+  if (!profile) return false;
+  if (profile.status !== 'active') return false;
+  if (profile.accessStatus === 'inactive' || profile.accessStatus === 'blocked') return false;
+  return true;
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
   const [adminProfile, setAdminProfile] = useState<AdminUser | null>(null);
+  const [accountStatusInfo, setAccountStatusInfo] = useState<AccountStatusInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
   const [sessionExpired, setSessionExpired] = useState(false);
@@ -46,15 +79,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const verifyBackendAdmin = useCallback(async (user: User) => {
     try {
       const profile = await apiFetch<AdminUser>('/api/v1/admin/me');
+      if (!isProfileAccessActive(profile)) {
+        setAdminProfile(null);
+        setAccountStatusInfo({
+          status: profile.status,
+          verificationStatus: profile.verificationStatus,
+          accessStatus: profile.accessStatus,
+          rejectionReason: profile.rejectionReason,
+          department: profile.primaryDepartment,
+          role: profile.role,
+        });
+        setAuthError('Your account is awaiting administrator verification or activation.');
+        return;
+      }
       setAdminProfile(profile);
+      setAccountStatusInfo(null);
       setAuthError(null);
     } catch (err) {
       const msg = err instanceof Error ? err.message : '';
-      // Do not fall back if the server explicitly revoked session or suspended the staff member
+      if (err instanceof ApiError && err.data && typeof err.data.accountStatus === 'string') {
+        setAdminProfile(null);
+        setAccountStatusInfo({
+          status: String(err.data.accountStatus),
+          verificationStatus:
+            typeof err.data.verificationStatus === 'string' ? err.data.verificationStatus : undefined,
+          accessStatus:
+            typeof err.data.accessStatus === 'string' ? err.data.accessStatus : undefined,
+          rejectionReason:
+            typeof err.data.rejectionReason === 'string' ? err.data.rejectionReason : undefined,
+          department: typeof err.data.department === 'string' ? err.data.department : undefined,
+          role: typeof err.data.role === 'string' ? err.data.role : undefined,
+        });
+        setAuthError(msg);
+        return;
+      }
+
       if (
         msg.toLowerCase().includes('revoked') ||
         msg.toLowerCase().includes('suspended') ||
-        msg.toLowerCase().includes('deactivated')
+        msg.toLowerCase().includes('deactivated') ||
+        msg.toLowerCase().includes('pending') ||
+        msg.toLowerCase().includes('rejected')
       ) {
         setAdminProfile(null);
         setAuthError(msg);
@@ -64,15 +129,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Fallback check via Firestore directly if Express server restarted mid-request
       try {
         const snap = await getDoc(doc(db, 'admin_users', user.uid));
-        if (snap.exists() && snap.data().status === 'active') {
-          setAdminProfile(snap.data() as AdminUser);
-          setAuthError(null);
+        if (snap.exists()) {
+          const docData = snap.data() as AdminUser;
+          if (isProfileAccessActive(docData)) {
+            setAdminProfile(docData);
+            setAccountStatusInfo(null);
+            setAuthError(null);
+            return;
+          }
+          setAdminProfile(null);
+          setAccountStatusInfo({
+            status: docData.status,
+            verificationStatus: docData.verificationStatus,
+            accessStatus: docData.accessStatus,
+            rejectionReason: docData.rejectionReason,
+            department: docData.primaryDepartment,
+            role: docData.role,
+          });
+          setAuthError(
+            docData.status === 'pending_verification'
+              ? 'Your staff account is pending Super Administrator verification.'
+              : docData.status === 'rejected'
+              ? 'Your staff account registration was not approved.'
+              : msg || 'Your account does not currently have active access.'
+          );
           return;
         }
       } catch {
         // ignore fallback error, surface backend authorization message
       }
       setAdminProfile(null);
+      setAccountStatusInfo(null);
       setAuthError(
         msg || 'Your account is not authorized as a SWAS TASKS administrator.'
       );
@@ -94,6 +181,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await verifyBackendAdmin(user);
       } else {
         setAdminProfile(null);
+        setAccountStatusInfo(null);
+        clearGmailConnection();
+        clearDriveConnection();
       }
       setLoading(false);
     });
@@ -188,23 +278,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(async () => {
     setAuthError(null);
     setAdminProfile(null);
+    setAccountStatusInfo(null);
+    await disconnectOfficialGmailAccount();
+    await disconnectGoogleDriveAccount();
     await signOut(auth);
   }, []);
 
   const clearAuthError = useCallback(() => setAuthError(null), []);
 
+  const profileActive = isProfileAccessActive(adminProfile);
+
   const isSuperAdmin = Boolean(
-    adminProfile && adminProfile.status === 'active' && adminProfile.role === 'SUPER_ADMIN'
+    profileActive && adminProfile && adminProfile.role === 'SUPER_ADMIN'
   );
 
   const primaryDepartment: EightDepartmentId | null =
+    profileActive &&
     adminProfile &&
-    adminProfile.status === 'active' &&
     adminProfile.primaryDepartment &&
     adminProfile.primaryDepartment !== 'all'
       ? adminProfile.primaryDepartment
-      : adminProfile &&
-        adminProfile.status === 'active' &&
+      : profileActive &&
+        adminProfile &&
         adminProfile.role !== 'SUPER_ADMIN' &&
         adminProfile.departments[0] &&
         adminProfile.departments[0] !== 'overview' &&
@@ -214,10 +309,51 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       ? (adminProfile.departments[0] as EightDepartmentId)
       : null;
 
+  const hasEmailPermission = useCallback(
+    (perm: EmailPermission) => {
+      if (!adminProfile || !isProfileAccessActive(adminProfile)) return false;
+      if (adminProfile.role === 'SUPER_ADMIN') return true;
+      const acts = adminProfile.actions || [];
+      const hasExplicitEmailKeys = acts.some((a) => String(a).startsWith('email.'));
+      if (hasExplicitEmailKeys) {
+        return acts.includes(perm);
+      }
+      // Backward-compatible mapping for existing legacy staff records before email.* assignment
+      if (perm === 'email.view' || perm === 'email.view_reports') {
+        return acts.includes('view') || acts.includes('read') || acts.includes('manage');
+      }
+      if (perm === 'email.compose' || perm === 'email.send') {
+        return (
+          acts.includes('create') ||
+          acts.includes('edit') ||
+          acts.includes('update') ||
+          acts.includes('manage')
+        );
+      }
+      if (perm === 'email.retry_failed') {
+        return acts.includes('edit') || acts.includes('update') || acts.includes('manage');
+      }
+      if (perm === 'email.schedule') {
+        return acts.includes('manage');
+      }
+      if (perm === 'email.manage_templates' || perm === 'email.manage_settings') {
+        return (
+          primaryDepartment === 'platform_settings' &&
+          (acts.includes('edit') || acts.includes('update') || acts.includes('manage'))
+        );
+      }
+      return false;
+    },
+    [adminProfile, primaryDepartment]
+  );
+
   const hasDepartment = useCallback(
     (dept: DepartmentId) => {
-      if (!adminProfile || adminProfile.status !== 'active') return false;
+      if (!adminProfile || !isProfileAccessActive(adminProfile)) return false;
       if (adminProfile.role === 'SUPER_ADMIN') return true;
+      if (dept === 'email_centre') {
+        return hasEmailPermission('email.view');
+      }
       // Department staff are strictly isolated to their single assigned department workplace
       if (
         dept === 'overview' ||
@@ -232,13 +368,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       return adminProfile.departments.includes(dept);
     },
-    [adminProfile, primaryDepartment]
+    [adminProfile, primaryDepartment, hasEmailPermission]
   );
 
   const hasAction = useCallback(
     (action: AdminAction) => {
-      if (!adminProfile || adminProfile.status !== 'active') return false;
+      if (!adminProfile || !isProfileAccessActive(adminProfile)) return false;
       if (adminProfile.role === 'SUPER_ADMIN') return true;
+      if (String(action).startsWith('email.')) {
+        return hasEmailPermission(action as EmailPermission);
+      }
       const acts = adminProfile.actions || [];
       if (acts.includes('manage')) return true;
       if (action === 'view' || action === 'read') {
@@ -249,13 +388,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       return acts.includes(action);
     },
-    [adminProfile]
+    [adminProfile, hasEmailPermission]
   );
 
   const canManageStaff = Boolean(
     isSuperAdmin ||
-      (adminProfile &&
-        adminProfile.status === 'active' &&
+      (profileActive &&
+        adminProfile &&
         primaryDepartment === 'user_management' &&
         adminProfile.actions?.includes('manage'))
   );
@@ -265,6 +404,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       value={{
         firebaseUser,
         adminProfile,
+        accountStatusInfo,
         isSuperAdmin,
         canManageStaff,
         primaryDepartment,
@@ -279,6 +419,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         clearAuthError,
         hasDepartment,
         hasAction,
+        hasEmailPermission,
       }}
     >
       {children}

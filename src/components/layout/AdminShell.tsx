@@ -8,10 +8,12 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardList,
+  HardDrive,
   HelpCircle,
   KeyRound,
   LayoutDashboard,
   LogOut,
+  Mail,
   Megaphone,
   Menu,
   MessageSquare,
@@ -26,6 +28,7 @@ import {
 } from 'lucide-react';
 import {
   EIGHT_DEPARTMENTS,
+  EMAIL_CENTRE_SUBDEPARTMENTS,
   ROLE_DEFINITIONS,
   STAFF_MANAGEMENT_SUBDEPARTMENTS,
 } from '../../config/navigation';
@@ -53,6 +56,7 @@ interface AdminShellProps {
   onNavigate: (dept: DepartmentId, subId?: string) => void;
   onOpenSearch: () => void;
   notifications: AdminNotification[];
+  pendingVerificationCount?: number;
   children: React.ReactNode;
 }
 
@@ -64,6 +68,7 @@ export function AdminShell({
   onNavigate,
   onOpenSearch,
   notifications,
+  pendingVerificationCount = 0,
   children,
 }: AdminShellProps) {
   const {
@@ -73,7 +78,9 @@ export function AdminShell({
     primaryDepartment,
     logout,
     hasDepartment,
+    hasEmailPermission,
   } = useAuth();
+  const canViewEmailCentre = isSuperAdmin || hasEmailPermission('email.view');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [navSearch, setNavSearch] = useState('');
@@ -105,6 +112,8 @@ export function AdminShell({
   const activeSubConfig =
     activeDept === 'staff_management'
       ? STAFF_MANAGEMENT_SUBDEPARTMENTS.find((s) => s.id === activeSubId)
+      : activeDept === 'email_centre'
+      ? EMAIL_CENTRE_SUBDEPARTMENTS.find((s) => s.id === activeSubId)
       : activeDepartmentConfig?.subdepartments.find((s) => s.id === activeSubId);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
@@ -135,6 +144,12 @@ export function AdminShell({
         ? ['Control Centre', 'Staff Management', activeSubConfig.label]
         : ['Control Centre', 'Staff Management'];
     }
+    if (activeDept === 'email_centre') {
+      return activeSubConfig
+        ? ['Control Centre', 'Email Centre', activeSubConfig.label]
+        : ['Control Centre', 'Email Centre'];
+    }
+    if (activeDept === 'google_drive') return ['Control Centre', 'Google Drive'];
     if (activeDept === 'system_health') return ['Control Centre', 'System Status'];
     if (activeDept === 'support_announcements') return ['Control Centre', 'Support & Notices'];
     if (activeDepartmentConfig && activeSubConfig) {
@@ -266,7 +281,16 @@ export function AdminShell({
                 >
                   <span className="flex items-center gap-3 min-w-0">
                     <UserCheck className="w-4 h-4 shrink-0" />
-                    {!sidebarCollapsed ? <span className="truncate">Staff Management</span> : null}
+                    {!sidebarCollapsed ? (
+                      <span className="truncate flex items-center gap-2">
+                        <span>Staff Management</span>
+                        {pendingVerificationCount > 0 ? (
+                          <span className="px-1.5 py-0.5 rounded-full bg-amber-400 text-[#102B50] text-[10px] font-bold tabular-nums">
+                            {pendingVerificationCount}
+                          </span>
+                        ) : null}
+                      </span>
+                    ) : null}
                   </span>
                   {!sidebarCollapsed ? (
                     <ChevronDown
@@ -283,8 +307,64 @@ export function AdminShell({
                         key={sub.id}
                         type="button"
                         onClick={() => handleSelectNav('staff_management', sub.id)}
-                        className={`w-full text-left px-2.5 py-1.5 rounded typo-nav transition-colors truncate ${
+                        className={`w-full text-left px-2.5 py-1.5 rounded typo-nav transition-colors flex items-center justify-between gap-2 ${
                           activeDept === 'staff_management' && activeSubId === sub.id
+                            ? 'bg-[#1265C8] text-white font-semibold'
+                            : 'text-blue-100/85 hover:text-white hover:bg-white/10'
+                        }`}
+                      >
+                        <span className="truncate">{sub.label}</span>
+                        {sub.id === 'staff_verification' && pendingVerificationCount > 0 ? (
+                          <span className="px-1.5 py-0.5 rounded-full bg-amber-400 text-[#102B50] text-[10px] font-bold tabular-nums shrink-0">
+                            {pendingVerificationCount}
+                          </span>
+                        ) : null}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {canViewEmailCentre ? (
+              <div className="space-y-0.5">
+                <button
+                  type="button"
+                  title={sidebarCollapsed ? 'Email Centre' : undefined}
+                  onClick={() => {
+                    if (sidebarCollapsed) {
+                      handleSelectNav('email_centre', EMAIL_CENTRE_SUBDEPARTMENTS[0].id);
+                    } else {
+                      toggleDept('email_centre');
+                    }
+                  }}
+                  className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                    activeDept === 'email_centre'
+                      ? 'bg-[#1265C8]/90 text-white'
+                      : 'text-slate-100 hover:bg-white/10'
+                  }`}
+                >
+                  <span className="flex items-center gap-3 min-w-0">
+                    <Mail className="w-4 h-4 shrink-0" />
+                    {!sidebarCollapsed ? <span className="truncate">Email Centre</span> : null}
+                  </span>
+                  {!sidebarCollapsed ? (
+                    <ChevronDown
+                      className={`w-3.5 h-3.5 shrink-0 transition-transform duration-150 ${
+                        expandedDepts.email_centre ? 'rotate-180' : ''
+                      }`}
+                    />
+                  ) : null}
+                </button>
+                {!sidebarCollapsed && expandedDepts.email_centre ? (
+                  <div className="ml-4 pl-3 border-l border-white/15 space-y-0.5 py-1">
+                    {EMAIL_CENTRE_SUBDEPARTMENTS.map((sub) => (
+                      <button
+                        key={sub.id}
+                        type="button"
+                        onClick={() => handleSelectNav('email_centre', sub.id)}
+                        className={`w-full text-left px-2.5 py-1.5 rounded typo-nav transition-colors truncate ${
+                          activeDept === 'email_centre' && activeSubId === sub.id
                             ? 'bg-[#1265C8] text-white font-semibold'
                             : 'text-blue-100/85 hover:text-white hover:bg-white/10'
                         }`}
@@ -296,6 +376,20 @@ export function AdminShell({
                 ) : null}
               </div>
             ) : null}
+
+            <button
+              type="button"
+              title={sidebarCollapsed ? 'Google Drive' : undefined}
+              onClick={() => handleSelectNav('google_drive')}
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors whitespace-nowrap ${
+                activeDept === 'google_drive'
+                  ? 'bg-[#1265C8] text-white'
+                  : 'text-slate-100 hover:bg-white/10'
+              }`}
+            >
+              <HardDrive className="w-4 h-4 shrink-0" />
+              {!sidebarCollapsed ? <span className="truncate">Google Drive</span> : null}
+            </button>
           </>
         ) : null}
 
@@ -409,6 +503,35 @@ export function AdminShell({
             >
               <MessageSquare className="w-4 h-4 shrink-0" />
               {!sidebarCollapsed ? <span className="truncate">Messages</span> : null}
+            </button>
+            {canViewEmailCentre ? (
+              <button
+                type="button"
+                onClick={() => handleSelectNav('email_centre', 'dashboard')}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors whitespace-nowrap ${
+                  activeDept === 'email_centre'
+                    ? 'bg-[#1265C8] text-white'
+                    : 'text-slate-100 hover:bg-white/10'
+                }`}
+              >
+                <Mail className="w-4 h-4 shrink-0" />
+                {!sidebarCollapsed ? <span className="truncate">Email Centre</span> : null}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => {
+                onSelectWorkplaceTab('drive');
+                setMobileOpen(false);
+              }}
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors whitespace-nowrap ${
+                workplaceTab === 'drive'
+                  ? 'bg-[#1265C8] text-white'
+                  : 'text-slate-100 hover:bg-white/10'
+              }`}
+            >
+              <HardDrive className="w-4 h-4 shrink-0" />
+              {!sidebarCollapsed ? <span className="truncate">Google Drive</span> : null}
             </button>
             <button
               type="button"

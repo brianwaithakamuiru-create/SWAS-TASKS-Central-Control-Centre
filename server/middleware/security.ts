@@ -24,7 +24,14 @@ export const corsMiddleware = cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key', 'X-Correlation-Id'],
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'X-API-Key',
+    'X-Correlation-Id',
+    'Idempotency-Key',
+    'X-Gmail-Access-Token',
+  ],
 });
 
 export const apiRateLimiter = rateLimit({

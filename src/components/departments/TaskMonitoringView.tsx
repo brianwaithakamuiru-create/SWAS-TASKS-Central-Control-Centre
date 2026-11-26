@@ -7,6 +7,7 @@ import {
   Clock,
   Download,
   FileBarChart2,
+  Mail,
   Plus,
   Search,
   X,
@@ -18,11 +19,18 @@ import {
   saveTaskCategory,
   updateTaskModeration,
 } from '../../services/firestoreService';
-import type { ActivityLog, TaskCategory, TaskRecord } from '../../types/admin';
+import type {
+  ActivityLog,
+  ClientAccount,
+  EmailTemplateRecord,
+  TaskCategory,
+  TaskRecord,
+} from '../../types/admin';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { EmptyState } from '../common/EmptyState';
 import { StatusText } from '../common/StatusText';
 import { TablePagination, usePaginatedList } from '../common/TablePagination';
+import { DepartmentEmailModal, type DepartmentEmailTarget } from './DepartmentEmailModal';
 
 interface TaskMonitoringViewProps {
   subId: string;
@@ -30,6 +38,8 @@ interface TaskMonitoringViewProps {
   tasks: TaskRecord[];
   categories: TaskCategory[];
   activityLogs: ActivityLog[];
+  clients?: ClientAccount[];
+  emailTemplates?: EmailTemplateRecord[];
 }
 
 type TaskSortKey = 'budgetKes' | 'deadline' | 'createdAt';
@@ -40,8 +50,11 @@ export function TaskMonitoringView({
   tasks,
   categories,
   activityLogs,
+  clients = [],
+  emailTemplates = [],
 }: TaskMonitoringViewProps) {
-  const { adminProfile, hasAction } = useAuth();
+  const { adminProfile, hasAction, hasEmailPermission } = useAuth();
+  const canEmail = hasEmailPermission('email.compose');
   const subdepartments =
     EIGHT_DEPARTMENTS.find((d) => d.id === 'task_monitoring')?.subdepartments || [];
 
@@ -49,6 +62,8 @@ export function TaskMonitoringView({
   const [sortKey, setSortKey] = useState<TaskSortKey>('createdAt');
   const [sortAsc, setSortAsc] = useState(false);
   const [selectedTask, setSelectedTask] = useState<TaskRecord | null>(null);
+  const [emailTarget, setEmailTarget] = useState<DepartmentEmailTarget | null>(null);
+  const [emailSubjectDefault, setEmailSubjectDefault] = useState('');
   const [catName, setCatName] = useState('');
   const [catDesc, setCatDesc] = useState('');
   const [catMinBudget, setCatMinBudget] = useState('500');
@@ -618,6 +633,37 @@ export function TaskMonitoringView({
                               Remove
                             </button>
                           ) : null}
+                          {canEmail ? (() => {
+                            const clientRec = clients.find(
+                              (c) => c.clientId === t.clientId || c.ownerUid === t.clientId
+                            );
+                            if (!clientRec?.email) return null;
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEmailSubjectDefault(`SWAS TASKS – Task Update: ${t.title}`);
+                                  setEmailTarget({
+                                    name: clientRec.name,
+                                    email: clientRec.email,
+                                    uid: clientRec.ownerUid || clientRec.clientId,
+                                    recipientType: 'client',
+                                    sourceRecord: `tasks/${t.taskId}`,
+                                    vars: {
+                                      client_name: clientRec.name,
+                                      first_name: clientRec.name.split(' ')[0] || clientRec.name,
+                                      email: clientRec.email,
+                                      account_id: clientRec.clientId,
+                                    },
+                                  });
+                                }}
+                                className="inline-flex items-center gap-1 text-xs font-medium text-[#1265C8] hover:underline"
+                              >
+                                <Mail className="w-3 h-3" />
+                                Email
+                              </button>
+                            );
+                          })() : null}
                         </td>
                       </tr>
                     ))}
@@ -737,6 +783,15 @@ export function TaskMonitoringView({
           onConfirm={confirmState.onConfirm}
         />
       ) : null}
+
+      <DepartmentEmailModal
+        open={Boolean(emailTarget)}
+        onClose={() => setEmailTarget(null)}
+        department="task_monitoring"
+        initialRecipient={emailTarget}
+        defaultSubject={emailSubjectDefault}
+        templates={emailTemplates}
+      />
     </div>
   );
 }

@@ -186,3 +186,53 @@ export async function firestorePatchFields(
   const data = (await res.json()) as FirestoreRestDoc;
   return parseDoc(data);
 }
+
+export async function firestoreDeleteDoc(
+  collectionName: string,
+  docId: string,
+  idToken: string
+): Promise<void> {
+  const url = `${BASE_DOC_URL}/${encodeURIComponent(collectionName)}/${encodeURIComponent(docId)}`;
+  const res = await fetch(url, {
+    method: 'DELETE',
+    headers: buildHeaders(idToken),
+  });
+  if (!res.ok && res.status !== 404) {
+    const body = await res.text();
+    throw new Error(`Firestore DELETE ${collectionName}/${docId} failed (${res.status}): ${body}`);
+  }
+}
+
+export async function firestoreQueryByField(
+  collectionName: string,
+  fieldPath: string,
+  op: 'EQUAL' | 'IN',
+  value: unknown,
+  idToken: string,
+  limit = 200
+): Promise<Record<string, unknown>[]> {
+  const url = `${BASE_DOC_URL}:runQuery`;
+  const structuredQuery = {
+    from: [{ collectionId: collectionName }],
+    where: {
+      fieldFilter: {
+        field: { fieldPath },
+        op,
+        value: toFirestoreValue(value),
+      },
+    },
+    limit,
+  };
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: buildHeaders(idToken),
+    body: JSON.stringify({ structuredQuery }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Firestore QUERY ${collectionName} failed (${res.status}): ${body}`);
+  }
+  const rows = (await res.json()) as Array<{ document?: FirestoreRestDoc }>;
+  return rows.filter((r) => Boolean(r.document)).map((r) => parseDoc(r.document!));
+}
+

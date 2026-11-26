@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import {
   ArrowUpDown,
   Download,
+  Mail,
   Plus,
   Search,
   Shield,
@@ -23,6 +24,7 @@ import type {
   AdminRoleId,
   AdminUser,
   DepartmentId,
+  EmailTemplateRecord,
   SecurityEvent,
   UserAccount,
 } from '../../types/admin';
@@ -30,6 +32,7 @@ import { ConfirmModal } from '../common/ConfirmModal';
 import { EmptyState } from '../common/EmptyState';
 import { StatusText } from '../common/StatusText';
 import { TablePagination, usePaginatedList } from '../common/TablePagination';
+import { DepartmentEmailModal, type DepartmentEmailTarget } from './DepartmentEmailModal';
 
 interface UserManagementViewProps {
   subId: string;
@@ -38,6 +41,7 @@ interface UserManagementViewProps {
   adminUsers: AdminUser[];
   activityLogs: ActivityLog[];
   securityEvents: SecurityEvent[];
+  emailTemplates?: EmailTemplateRecord[];
 }
 
 const ALL_ACTIONS: AdminAction[] = [
@@ -61,8 +65,10 @@ export function UserManagementView({
   adminUsers,
   activityLogs,
   securityEvents,
+  emailTemplates = [],
 }: UserManagementViewProps) {
-  const { adminProfile, hasAction } = useAuth();
+  const { adminProfile, hasAction, hasEmailPermission } = useAuth();
+  const canEmail = hasEmailPermission('email.compose');
   const subdepartments =
     EIGHT_DEPARTMENTS.find((d) => d.id === 'user_management')?.subdepartments || [];
 
@@ -70,6 +76,7 @@ export function UserManagementView({
   const [sortKey, setSortKey] = useState<UserSortKey>('createdAt');
   const [sortAsc, setSortAsc] = useState(false);
   const [selectedUser, setSelectedUser] = useState<UserAccount | null>(null);
+  const [emailTarget, setEmailTarget] = useState<DepartmentEmailTarget | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [confirmState, setConfirmState] = useState<{
@@ -245,7 +252,11 @@ export function UserManagementView({
     setNewAdminRole(adm.role);
     setNewAdminDepts(adm.departments);
     setNewAdminActions(adm.actions);
-    setNewAdminStatus(adm.status);
+    setNewAdminStatus(
+      adm.status === 'pending_verification' || adm.status === 'rejected'
+        ? 'suspended'
+        : adm.status
+    );
     setAdminModalOpen(true);
   };
 
@@ -835,6 +846,32 @@ export function UserManagementView({
                               Ban
                             </button>
                           ) : null}
+
+                          {canEmail && u.email ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setEmailTarget({
+                                  name: u.fullName,
+                                  email: u.email,
+                                  uid: u.uid,
+                                  recipientType: u.accountType === 'worker' ? 'worker' : 'user',
+                                  sourceRecord: `users/${u.uid}`,
+                                  vars: {
+                                    client_name: u.fullName,
+                                    first_name: u.fullName.split(' ')[0] || u.fullName,
+                                    email: u.email,
+                                    account_id: u.uid,
+                                    account_status: u.status,
+                                  },
+                                })
+                              }
+                              className="inline-flex items-center gap-1 text-xs font-medium text-[#1265C8] hover:underline"
+                            >
+                              <Mail className="w-3 h-3" />
+                              Email
+                            </button>
+                          ) : null}
                         </td>
                       </tr>
                     ))}
@@ -906,6 +943,34 @@ export function UserManagementView({
                 </dd>
               </div>
             </dl>
+
+            {canEmail && selectedUser.email ? (
+              <div className="mt-4">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setEmailTarget({
+                      name: selectedUser.fullName,
+                      email: selectedUser.email,
+                      uid: selectedUser.uid,
+                      recipientType: selectedUser.accountType === 'worker' ? 'worker' : 'user',
+                      sourceRecord: `users/${selectedUser.uid}`,
+                      vars: {
+                        client_name: selectedUser.fullName,
+                        first_name: selectedUser.fullName.split(' ')[0] || selectedUser.fullName,
+                        email: selectedUser.email,
+                        account_id: selectedUser.uid,
+                        account_status: selectedUser.status,
+                      },
+                    })
+                  }
+                  className="inline-flex items-center gap-1.5 px-3 py-2 typo-button text-white bg-[#1265C8] hover:bg-[#102B50] rounded-md"
+                >
+                  <Mail className="w-4 h-4" />
+                  Email {selectedUser.fullName}
+                </button>
+              </div>
+            ) : null}
 
             <div className="mt-6">
               <h4 className="typo-card-heading text-[#75869D] mb-2">
@@ -1114,6 +1179,14 @@ export function UserManagementView({
           onConfirm={confirmState.onConfirm}
         />
       ) : null}
+
+      <DepartmentEmailModal
+        open={Boolean(emailTarget)}
+        onClose={() => setEmailTarget(null)}
+        department="user_management"
+        initialRecipient={emailTarget}
+        templates={emailTemplates}
+      />
     </div>
   );
 }

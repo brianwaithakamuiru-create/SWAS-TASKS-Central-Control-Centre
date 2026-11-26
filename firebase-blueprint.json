@@ -26,10 +26,21 @@
           ]
         },
         "role": { "type": "string", "minLength": 2, "maxLength": 80 },
-        "status": { "type": "string", "enum": ["active", "suspended", "deactivated", "revoked"] },
+        "status": { "type": "string", "enum": ["pending_verification", "active", "rejected", "suspended", "deactivated", "revoked"] },
+        "verificationStatus": { "type": "string", "enum": ["pending_verification", "approved", "rejected"] },
+        "accessStatus": { "type": "string", "enum": ["inactive", "active", "blocked"] },
         "departments": { "type": "array" },
         "actions": { "type": "array" },
         "invitationId": { "type": "string", "maxLength": 128 },
+        "invitationType": { "type": "string", "enum": ["staff_account", "department_member", "department_admin"] },
+        "registeredAt": { "type": "string", "maxLength": 64 },
+        "approvedBy": { "type": "string", "maxLength": 128 },
+        "approvedByName": { "type": "string", "maxLength": 140 },
+        "approvedAt": { "type": "string", "maxLength": 64 },
+        "rejectedBy": { "type": "string", "maxLength": 128 },
+        "rejectedByName": { "type": "string", "maxLength": 140 },
+        "rejectedAt": { "type": "string", "maxLength": 64 },
+        "rejectionReason": { "type": "string", "maxLength": 500 },
         "sessionRevokedAt": { "type": "string", "maxLength": 64 },
         "lastLoginAt": { "type": "string", "maxLength": 64 },
         "mfaEnabled": { "type": "boolean" },
@@ -45,14 +56,20 @@
     },
     "StaffInvitation": {
       "title": "StaffInvitation",
-      "description": "Single-use, time-limited, department-locked staff invitation with hashed token.",
+      "description": "Time-limited, department-locked staff invitation with short shareable code hash.",
       "type": "object",
       "properties": {
         "invitationId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "shortCode": { "type": "string", "minLength": 6, "maxLength": 32 },
+        "codeHash": { "type": "string", "minLength": 32, "maxLength": 128 },
         "tokenHash": { "type": "string", "minLength": 32, "maxLength": 128 },
-        "fullName": { "type": "string", "minLength": 1, "maxLength": 140 },
-        "email": { "type": "string", "format": "email", "maxLength": 254 },
+        "invitationType": { "type": "string", "enum": ["staff_account", "department_member", "department_admin"] },
+        "fullName": { "type": "string", "maxLength": 140 },
+        "email": { "type": "string", "maxLength": 254 },
+        "emailRestricted": { "type": "boolean" },
         "phone": { "type": "string", "maxLength": 32 },
+        "requiresPhone": { "type": "boolean" },
+        "singleUse": { "type": "boolean" },
         "department": {
           "type": "string",
           "enum": [
@@ -68,16 +85,81 @@
         },
         "departmentRole": { "type": "string", "minLength": 2, "maxLength": 80 },
         "permissions": { "type": "array" },
-        "status": { "type": "string", "enum": ["pending", "accepted", "expired", "revoked"] },
+        "shareMessage": { "type": "string", "maxLength": 1000 },
+        "inviterName": { "type": "string", "maxLength": 140 },
+        "status": { "type": "string", "enum": ["pending", "opened", "accepted", "expired", "revoked"] },
         "expiresAt": { "type": "string", "format": "date-time" },
-        "emailDeliveryStatus": { "type": "string", "enum": ["sent", "not_configured", "failed"] },
+        "openedAt": { "type": "string", "maxLength": 64 },
+        "openedCount": { "type": "number" },
+        "acceptedCount": { "type": "number" },
+        "emailDeliveryStatus": { "type": "string", "enum": ["sent", "not_configured", "failed", "not_sent"] },
         "acceptedByUid": { "type": "string", "maxLength": 128 },
+        "acceptedByEmail": { "type": "string", "maxLength": 254 },
         "acceptedAt": { "type": "string", "maxLength": 64 },
+        "revokedBy": { "type": "string", "maxLength": 128 },
+        "revokedAt": { "type": "string", "maxLength": 64 },
+        "revokeReason": { "type": "string", "maxLength": 500 },
         "createdBy": { "type": "string", "maxLength": 128 },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["invitationId", "tokenHash", "fullName", "email", "phone", "department", "departmentRole", "permissions", "status", "expiresAt", "createdBy", "createdAt", "updatedAt"]
+      "required": ["invitationId", "tokenHash", "department", "departmentRole", "permissions", "status", "expiresAt", "createdBy", "createdAt", "updatedAt"]
+    },
+    "InvitationLinkLookup": {
+      "title": "InvitationLinkLookup",
+      "description": "PII-free short-code HMAC lookup document for fast public /join/:code validation.",
+      "type": "object",
+      "properties": {
+        "codeHash": { "type": "string", "minLength": 32, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "invitationId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "invitationType": { "type": "string", "enum": ["staff_account", "department_member", "department_admin"] },
+        "department": {
+          "type": "string",
+          "enum": [
+            "user_management",
+            "client_management",
+            "task_monitoring",
+            "bids_assignments",
+            "finance_control",
+            "api_management",
+            "activity_logs",
+            "platform_settings"
+          ]
+        },
+        "departmentLabel": { "type": "string", "maxLength": 120 },
+        "departmentRole": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "inviterName": { "type": "string", "maxLength": 140 },
+        "emailRestricted": { "type": "boolean" },
+        "requiresPhone": { "type": "boolean" },
+        "singleUse": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["pending", "opened", "accepted", "expired", "revoked"] },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["codeHash", "invitationId", "department", "departmentRole", "emailRestricted", "singleUse", "status", "expiresAt", "createdAt", "updatedAt"]
+    },
+    "StaffVerificationAudit": {
+      "title": "StaffVerificationAudit",
+      "description": "Immutable Super Admin review and approval/rejection audit log for newly registered staff accounts.",
+      "type": "object",
+      "properties": {
+        "auditId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "staffUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "staffName": { "type": "string", "maxLength": 140 },
+        "staffEmail": { "type": "string", "maxLength": 254 },
+        "invitationId": { "type": "string", "maxLength": 128 },
+        "department": { "type": "string", "maxLength": 64 },
+        "assignedRole": { "type": "string", "maxLength": 80 },
+        "decision": { "type": "string", "enum": ["registered", "approved", "rejected", "suspended", "reactivated"] },
+        "previousStatus": { "type": "string", "maxLength": 64 },
+        "newStatus": { "type": "string", "maxLength": 64 },
+        "decidedByUid": { "type": "string", "maxLength": 128 },
+        "decidedByName": { "type": "string", "maxLength": 140 },
+        "decisionReason": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["auditId", "staffUid", "staffEmail", "decision", "previousStatus", "newStatus", "decidedByUid", "createdAt"]
     },
     "DepartmentMessage": {
       "title": "DepartmentMessage",
@@ -464,27 +546,158 @@
     },
     "EmailLogRecord": {
       "title": "EmailLogRecord",
-      "description": "Transactional email delivery and failure audit record.",
+      "description": "Unified automatic, manual, scheduled, and bulk email delivery audit record.",
       "type": "object",
       "properties": {
         "emailLogId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "scope": { "type": "string", "enum": ["public_website", "control_centre"] },
+        "department": { "type": "string", "maxLength": 64 },
+        "kind": { "type": "string", "enum": ["automatic", "manual", "scheduled", "bulk"] },
         "eventType": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "campaignId": { "type": "string", "maxLength": 128 },
         "recipientEmail": { "type": "string", "format": "email", "maxLength": 254 },
+        "recipientName": { "type": "string", "maxLength": 140 },
+        "recipientUid": { "type": "string", "maxLength": 128 },
+        "recipientType": { "type": "string", "enum": ["user", "worker", "client", "admin", "custom"] },
+        "ccEmails": { "type": "array" },
+        "bccEmails": { "type": "array" },
         "subject": { "type": "string", "minLength": 1, "maxLength": 240 },
-        "bodyPreview": { "type": "string", "maxLength": 1000 },
+        "bodyPreview": { "type": "string", "maxLength": 4000 },
+        "htmlBody": { "type": "string", "maxLength": 32000 },
+        "ctaLabel": { "type": "string", "maxLength": 80 },
+        "ctaUrl": { "type": "string", "maxLength": 500 },
+        "attachments": { "type": "array" },
         "fromAddress": { "type": "string", "maxLength": 254 },
         "replyToAddress": { "type": "string", "maxLength": 254 },
         "provider": { "type": "string", "maxLength": 80 },
         "providerMessageId": { "type": "string", "maxLength": 160 },
-        "status": { "type": "string", "enum": ["sent", "failed", "not_configured"] },
+        "status": {
+          "type": "string",
+          "enum": [
+            "queued",
+            "sending",
+            "sent",
+            "accepted",
+            "delivered",
+            "failed",
+            "bounced",
+            "rejected",
+            "deferred",
+            "not_configured",
+            "scheduled",
+            "cancelled",
+            "duplicate_blocked"
+          ]
+        },
+        "deliveryStatusDetail": { "type": "string", "maxLength": 800 },
         "errorDetail": { "type": "string", "maxLength": 800 },
+        "bounceReason": { "type": "string", "maxLength": 500 },
         "retryCount": { "type": "number" },
+        "batchId": { "type": "string", "maxLength": 128 },
+        "scheduledFor": { "type": "string", "maxLength": 64 },
+        "sentAt": { "type": "string", "maxLength": 64 },
+        "deliveredAt": { "type": "string", "maxLength": 64 },
+        "openedAt": { "type": "string", "maxLength": 64 },
+        "clickedAt": { "type": "string", "maxLength": 64 },
+        "idempotencyKey": { "type": "string", "maxLength": 160 },
+        "sourceRecord": { "type": "string", "maxLength": 200 },
         "triggeredByUid": { "type": "string", "maxLength": 128 },
+        "triggeredByEmail": { "type": "string", "maxLength": 254 },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["emailLogId", "scope", "eventType", "recipientEmail", "subject", "fromAddress", "replyToAddress", "provider", "status", "createdAt", "updatedAt"]
+    },
+    "EmailTemplate": {
+      "title": "EmailTemplate",
+      "description": "Reusable rich-text email template with variable placeholders and department scope.",
+      "type": "object",
+      "properties": {
+        "templateId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 140 },
+        "category": {
+          "type": "string",
+          "enum": [
+            "General Announcements",
+            "Account Updates",
+            "Welcome Emails",
+            "Payment Notifications",
+            "Important Notices",
+            "Task Notifications",
+            "Warnings",
+            "Support Responses",
+            "Policy Updates",
+            "Custom Templates"
+          ]
+        },
+        "department": { "type": "string", "maxLength": 64 },
+        "subject": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "bodyHtml": { "type": "string", "maxLength": 32000 },
+        "bodyText": { "type": "string", "maxLength": 16000 },
+        "variables": { "type": "array" },
+        "usageCount": { "type": "number" },
+        "active": { "type": "boolean" },
+        "createdByUid": { "type": "string", "maxLength": 128 },
+        "createdByEmail": { "type": "string", "maxLength": 254 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["templateId", "name", "category", "department", "subject", "bodyHtml", "active", "createdByUid", "createdAt", "updatedAt"]
+    },
+    "EmailDraft": {
+      "title": "EmailDraft",
+      "description": "Saved email composer draft with recipients, rich content, and attachment metadata.",
+      "type": "object",
+      "properties": {
+        "draftId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "department": { "type": "string", "maxLength": 64 },
+        "toEmails": { "type": "array" },
+        "ccEmails": { "type": "array" },
+        "bccEmails": { "type": "array" },
+        "subject": { "type": "string", "maxLength": 240 },
+        "bodyHtml": { "type": "string", "maxLength": 32000 },
+        "bodyText": { "type": "string", "maxLength": 16000 },
+        "attachments": { "type": "array" },
+        "scheduledFor": { "type": "string", "maxLength": 64 },
+        "templateId": { "type": "string", "maxLength": 128 },
+        "includeSignature": { "type": "boolean" },
+        "createdByUid": { "type": "string", "maxLength": 128 },
+        "createdByEmail": { "type": "string", "maxLength": 254 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["draftId", "department", "createdByUid", "createdAt", "updatedAt"]
+    },
+    "EmailCampaign": {
+      "title": "EmailCampaign",
+      "description": "Bulk personalized email campaign with delivery counters and scheduling support.",
+      "type": "object",
+      "properties": {
+        "campaignId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "department": { "type": "string", "maxLength": 64 },
+        "audienceFilter": { "type": "string", "maxLength": 120 },
+        "recipientCount": { "type": "number" },
+        "sentCount": { "type": "number" },
+        "failedCount": { "type": "number" },
+        "subject": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "bodyHtml": { "type": "string", "maxLength": 32000 },
+        "bodyText": { "type": "string", "maxLength": 16000 },
+        "attachments": { "type": "array" },
+        "status": {
+          "type": "string",
+          "enum": ["draft", "scheduled", "queued", "sending", "completed", "partially_failed", "failed", "cancelled"]
+        },
+        "scheduledFor": { "type": "string", "maxLength": 64 },
+        "startedAt": { "type": "string", "maxLength": 64 },
+        "completedAt": { "type": "string", "maxLength": 64 },
+        "templateId": { "type": "string", "maxLength": 128 },
+        "createdByUid": { "type": "string", "maxLength": 128 },
+        "createdByEmail": { "type": "string", "maxLength": 254 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["campaignId", "name", "department", "recipientCount", "sentCount", "failedCount", "subject", "status", "createdByUid", "createdAt", "updatedAt"]
     },
     "Announcement": {
       "title": "Announcement",
@@ -527,7 +740,7 @@
       "properties": {
         "notificationId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "department": { "type": "string", "maxLength": 64 },
-        "type": { "type": "string", "enum": ["user_registration", "client_registration", "new_task", "reported_account", "dispute", "withdrawal", "failed_payment", "api_failure", "security_alert", "system_error", "staff_invitation"] },
+        "type": { "type": "string", "enum": ["user_registration", "client_registration", "new_task", "reported_account", "dispute", "withdrawal", "failed_payment", "api_failure", "security_alert", "system_error", "staff_invitation", "staff_verification"] },
         "title": { "type": "string", "maxLength": 160 },
         "message": { "type": "string", "maxLength": 600 },
         "read": { "type": "boolean" },
@@ -543,7 +756,15 @@
     },
     "/staff_invitations/{invitationId}": {
       "schema": { "$ref": "#/entities/StaffInvitation" },
-      "description": "Single-use, time-limited staff invitation tokens."
+      "description": "Time-limited staff invitation records and short link metadata."
+    },
+    "/invitation_links/{codeHash}": {
+      "schema": { "$ref": "#/entities/InvitationLinkLookup" },
+      "description": "PII-free short-code lookup index for public /join/:code resolution."
+    },
+    "/staff_verification_audits/{auditId}": {
+      "schema": { "$ref": "#/entities/StaffVerificationAudit" },
+      "description": "Immutable Super Admin verification decision audit trail."
     },
     "/department_messages/{messageId}": {
       "schema": { "$ref": "#/entities/DepartmentMessage" },
@@ -660,6 +881,18 @@
     "/email_logs/{emailLogId}": {
       "schema": { "$ref": "#/entities/EmailLogRecord" },
       "description": "Email delivery and failure records across Public Website and Central Control Centre."
+    },
+    "/email_templates/{templateId}": {
+      "schema": { "$ref": "#/entities/EmailTemplate" },
+      "description": "Reusable categorized email templates with dynamic variables."
+    },
+    "/email_drafts/{draftId}": {
+      "schema": { "$ref": "#/entities/EmailDraft" },
+      "description": "Saved email composer drafts."
+    },
+    "/email_campaigns/{campaignId}": {
+      "schema": { "$ref": "#/entities/EmailCampaign" },
+      "description": "Bulk personalized email campaigns and execution metrics."
     }
   }
 }

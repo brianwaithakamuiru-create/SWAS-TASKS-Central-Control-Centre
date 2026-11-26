@@ -1,18 +1,20 @@
 import React, { useMemo, useState } from 'react';
-import { Download, FileSpreadsheet, Lock, Search, ShieldAlert, X } from 'lucide-react';
+import { Download, FileSpreadsheet, Lock, Mail, Search, ShieldAlert, X } from 'lucide-react';
 import { EIGHT_DEPARTMENTS } from '../../config/navigation';
 import { useAuth } from '../../context/AuthContext';
 import { exportRecordsToCsv, resolveSecurityEvent } from '../../services/firestoreService';
-import type { ActivityLog, SecurityEvent } from '../../types/admin';
+import type { ActivityLog, EmailTemplateRecord, SecurityEvent } from '../../types/admin';
 import { EmptyState } from '../common/EmptyState';
 import { StatusText } from '../common/StatusText';
 import { TablePagination, usePaginatedList } from '../common/TablePagination';
+import { DepartmentEmailModal, type DepartmentEmailTarget } from './DepartmentEmailModal';
 
 interface ActivityLogsViewProps {
   subId: string;
   onSelectSub: (subId: string) => void;
   activityLogs: ActivityLog[];
   securityEvents: SecurityEvent[];
+  emailTemplates?: EmailTemplateRecord[];
 }
 
 export function ActivityLogsView({
@@ -20,8 +22,10 @@ export function ActivityLogsView({
   onSelectSub,
   activityLogs,
   securityEvents,
+  emailTemplates = [],
 }: ActivityLogsViewProps) {
-  const { adminProfile, hasAction } = useAuth();
+  const { adminProfile, hasAction, hasEmailPermission } = useAuth();
+  const canEmail = hasEmailPermission('email.send') || hasEmailPermission('email.send_bulk');
   const subdepartments =
     EIGHT_DEPARTMENTS.find((d) => d.id === 'activity_logs')?.subdepartments || [];
 
@@ -30,6 +34,12 @@ export function ActivityLogsView({
   const [dateTo, setDateTo] = useState('');
   const [exportCategory, setExportCategory] = useState('all');
   const [selectedLog, setSelectedLog] = useState<ActivityLog | null>(null);
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
+  const [emailTarget, setEmailTarget] = useState<DepartmentEmailTarget | null>(null);
+  const [emailDefaults, setEmailDefaults] = useState<{ subject: string; body: string }>({
+    subject: '',
+    body: '',
+  });
 
   const categoryCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -370,7 +380,7 @@ export function ActivityLogsView({
                         <td className="px-4 py-3">
                           <StatusText status={ev.severity} />
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-4 py-3 space-x-2 whitespace-nowrap">
                           {ev.resolved ? (
                             <StatusText status="resolved" />
                           ) : adminProfile ? (
@@ -384,6 +394,31 @@ export function ActivityLogsView({
                           ) : (
                             <StatusText status="pending" label="Open" />
                           )}
+                          {canEmail ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEmailDefaults({
+                                  subject: `Security Alert: ${ev.eventType} (${ev.severity.toUpperCase()})`,
+                                  body: `Security Event: ${ev.eventType}\nSeverity: ${ev.severity}\nDetail: ${ev.detail}\nRecorded: ${new Date(ev.createdAt).toLocaleString()}\n\nPlease review and take any required action.\n`,
+                                });
+                                setEmailTarget(
+                                  ev.actorEmail
+                                    ? {
+                                        email: ev.actorEmail,
+                                        recipientType: 'admin',
+                                        sourceRecord: `security_events/${ev.eventId}`,
+                                      }
+                                    : null
+                                );
+                                setEmailModalOpen(true);
+                              }}
+                              className="inline-flex items-center gap-1 text-xs font-medium text-[#1265C8] hover:underline"
+                            >
+                              <Mail className="w-3 h-3" />
+                              Email Alert
+                            </button>
+                          ) : null}
                         </td>
                         <td className="px-4 py-3 text-right tabular-nums typo-meta text-[#75869D]">
                           {new Date(ev.createdAt).toLocaleString()}
@@ -510,9 +545,46 @@ export function ActivityLogsView({
                 {JSON.stringify(selectedLog.metadata || {}, null, 2)}
               </pre>
             </div>
+            {canEmail && selectedLog.actorEmail ? (
+              <div className="pt-2 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEmailDefaults({
+                      subject: `Audit Inquiry: ${selectedLog.action} (${selectedLog.affectedRecord})`,
+                      body: `Hello,\n\nRegarding audit event ${selectedLog.eventId} (${selectedLog.action} on ${selectedLog.affectedRecord} at ${new Date(selectedLog.createdAt).toLocaleString()}):\n\n`,
+                    });
+                    setEmailTarget({
+                      email: selectedLog.actorEmail || '',
+                      uid: selectedLog.actorId,
+                      recipientType: 'admin',
+                      sourceRecord: `activity_logs/${selectedLog.eventId}`,
+                    });
+                    setEmailModalOpen(true);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 typo-button text-white bg-[#1265C8] hover:bg-[#102B50] rounded-md"
+                >
+                  <Mail className="w-3.5 h-3.5" />
+                  Email Actor ({selectedLog.actorEmail})
+                </button>
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}
+
+      <DepartmentEmailModal
+        open={emailModalOpen}
+        onClose={() => {
+          setEmailModalOpen(false);
+          setEmailTarget(null);
+        }}
+        department="activity_logs"
+        initialRecipient={emailTarget}
+        templates={emailTemplates}
+        defaultSubject={emailDefaults.subject}
+        defaultBody={emailDefaults.body}
+      />
     </div>
   );
 }

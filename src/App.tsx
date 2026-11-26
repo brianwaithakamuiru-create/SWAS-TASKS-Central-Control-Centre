@@ -10,7 +10,9 @@ import {
   DepartmentWorkplacePanels,
   type WorkplaceTab,
 } from './components/departments/DepartmentWorkplacePanels';
+import { EmailCentreView } from './components/departments/EmailCentreView';
 import { FinanceControlView } from './components/departments/FinanceControlView';
+import { GoogleDriveView } from './components/departments/GoogleDriveView';
 import { MainDashboard } from './components/departments/MainDashboard';
 import { PlatformSettingsView } from './components/departments/PlatformSettingsView';
 import { StaffManagementView } from './components/departments/StaffManagementView';
@@ -20,10 +22,17 @@ import { TaskMonitoringView } from './components/departments/TaskMonitoringView'
 import { UserManagementView } from './components/departments/UserManagementView';
 import { AdminShell } from './components/layout/AdminShell';
 import { GlobalSearchModal } from './components/layout/GlobalSearchModal';
-import { EIGHT_DEPARTMENTS, STAFF_MANAGEMENT_SUBDEPARTMENTS } from './config/navigation';
+import {
+  EIGHT_DEPARTMENTS,
+  EMAIL_CENTRE_SUBDEPARTMENTS,
+  STAFF_MANAGEMENT_SUBDEPARTMENTS,
+} from './config/navigation';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import {
+  processDueScheduledEmailsNow,
   subscribeCollection,
+  subscribeDepartmentEmailCollection,
+  subscribeDepartmentInvitations,
   subscribeDepartmentMessages,
   subscribeOwnLoginHistory,
 } from './services/firestoreService';
@@ -42,11 +51,15 @@ import type {
   DepartmentMessage,
   DisputeRecord,
   EightDepartmentId,
+  EmailCampaignRecord,
+  EmailDraftRecord,
   EmailLogRecord,
+  EmailTemplateRecord,
   PlatformSetting,
   SecurityEvent,
   StaffInvitation,
   StaffLoginHistory,
+  StaffVerificationAudit,
   SupportTicket,
   TaskCategory,
   TaskRecord,
@@ -61,6 +74,10 @@ import type {
 const LAST_ROUTE_STORAGE_KEY = 'swas_admin_last_route';
 
 function extractInviteTokenFromLocation(): string | null {
+  const pathMatch = window.location.pathname.match(/^\/join\/([A-Za-z0-9_-]{4,64})\/?$/);
+  if (pathMatch && pathMatch[1]) {
+    return decodeURIComponent(pathMatch[1]);
+  }
   const params = new URLSearchParams(window.location.search);
   const qToken = params.get('invite');
   if (qToken && qToken.trim()) return qToken.trim();
@@ -78,6 +95,8 @@ function parseHashRoute(): { dept: DepartmentId; subId: string } {
   const validDepts: DepartmentId[] = [
     'overview',
     'staff_management',
+    'email_centre',
+    'google_drive',
     'user_management',
     'client_management',
     'task_monitoring',
@@ -98,6 +117,13 @@ function parseHashRoute(): { dept: DepartmentId; subId: string } {
           : STAFF_MANAGEMENT_SUBDEPARTMENTS[0].id;
       return { dept, subId };
     }
+    if (dept === 'email_centre') {
+      const subId =
+        subPart && EMAIL_CENTRE_SUBDEPARTMENTS.some((s) => s.id === subPart)
+          ? subPart
+          : EMAIL_CENTRE_SUBDEPARTMENTS[0].id;
+      return { dept, subId };
+    }
     const deptCfg = EIGHT_DEPARTMENTS.find((d) => d.id === dept);
     const subId =
       subPart && deptCfg?.subdepartments.some((s) => s.id === subPart)
@@ -116,7 +142,9 @@ function ControlCentreWorkspace() {
     canManageStaff,
     primaryDepartment,
     loading,
+    hasAction,
     hasDepartment,
+    hasEmailPermission,
   } = useAuth();
 
   const [inviteToken, setInviteToken] = useState<string | null>(() =>
@@ -145,6 +173,7 @@ function ControlCentreWorkspace() {
   const [users, setUsers] = useState<UserAccount[]>([]);
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
   const [invitations, setInvitations] = useState<StaffInvitation[]>([]);
+  const [verificationAudits, setVerificationAudits] = useState<StaffVerificationAudit[]>([]);
   const [loginHistory, setLoginHistory] = useState<StaffLoginHistory[]>([]);
   const [departmentMessages, setDepartmentMessages] = useState<DepartmentMessage[]>([]);
   const [clients, setClients] = useState<ClientAccount[]>([]);
@@ -165,6 +194,9 @@ function ControlCentreWorkspace() {
   const [securityEvents, setSecurityEvents] = useState<SecurityEvent[]>([]);
   const [settingsDocs, setSettingsDocs] = useState<PlatformSetting[]>([]);
   const [emailLogs, setEmailLogs] = useState<EmailLogRecord[]>([]);
+  const [emailTemplates, setEmailTemplates] = useState<EmailTemplateRecord[]>([]);
+  const [emailDrafts, setEmailDrafts] = useState<EmailDraftRecord[]>([]);
+  const [emailCampaigns, setEmailCampaigns] = useState<EmailCampaignRecord[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [notifications, setNotifications] = useState<AdminNotification[]>([]);
@@ -186,7 +218,7 @@ function ControlCentreWorkspace() {
   }, []);
 
   const exitInviteToLogin = useCallback(() => {
-    window.history.replaceState({}, '', window.location.pathname);
+    window.history.replaceState({}, '', '/');
     setInviteToken(null);
   }, []);
 
@@ -217,6 +249,19 @@ function ControlCentreWorkspace() {
         return;
       }
 
+      if (dept === 'email_centre') {
+        if (!hasDepartment('email_centre')) return;
+        const resolvedSub = subId || EMAIL_CENTRE_SUBDEPARTMENTS[0].id;
+        const next = { dept: 'email_centre' as DepartmentId, subId: resolvedSub };
+        setRoute(next);
+        setWorkplaceTab('operations');
+        const hash = `#/email_centre/${resolvedSub}`;
+        if (window.location.hash !== hash) {
+          window.history.pushState(next, '', hash);
+        }
+        return;
+      }
+
       if (!hasDepartment(dept)) {
         return;
       }
@@ -238,11 +283,12 @@ function ControlCentreWorkspace() {
     [canManageStaff, hasDepartment]
   );
 
-  // Immediately lock department staff to their assigned workplace after sign-in or URL hash edit
+  // Immediately lock department staff to their assigned workplace (or authorized Email Centre) after sign-in or URL hash edit
   useEffect(() => {
     if (!adminProfile) return;
     if (!isSuperAdmin && primaryDepartment) {
-      if (route.dept !== primaryDepartment) {
+      const canAccessEmail = route.dept === 'email_centre' && hasDepartment('email_centre');
+      if (route.dept !== primaryDepartment && !canAccessEmail) {
         const defaultSub =
           EIGHT_DEPARTMENTS.find((d) => d.id === primaryDepartment)?.subdepartments[0]?.id || '';
         const locked = { dept: primaryDepartment as DepartmentId, subId: defaultSub };
@@ -251,7 +297,7 @@ function ControlCentreWorkspace() {
         window.history.replaceState(locked, '', `#/${primaryDepartment}/${defaultSub}`);
       }
     }
-  }, [adminProfile, isSuperAdmin, primaryDepartment, route.dept]);
+  }, [adminProfile, isSuperAdmin, primaryDepartment, route.dept, hasDepartment]);
 
   // Sync browser back/forward navigation with strict department guard
   useEffect(() => {
@@ -338,7 +384,17 @@ function ControlCentreWorkspace() {
       setUsers
     );
     safeSub(isSuper || canManageStaff, 'admin_users', setAdminUsers);
-    safeSub(isSuper || canManageStaff, 'staff_invitations', setInvitations);
+    safeSub(isSuper || canManageStaff, 'staff_verification_audits', setVerificationAudits);
+    if (isSuper || canManageStaff || (primaryDepartment && hasAction('manage'))) {
+      unsubs.push(
+        subscribeDepartmentInvitations<StaffInvitation>(
+          primaryDepartment,
+          isSuper || canManageStaff,
+          setInvitations,
+          (err) => console.warn('Listener warning on staff_invitations:', err.message)
+        )
+      );
+    }
     if (isSuper || canManageStaff) {
       safeSub(true, 'staff_login_history', setLoginHistory);
     } else {
@@ -382,11 +438,84 @@ function ControlCentreWorkspace() {
     safeSub(true, 'activity_logs', setActivityLogs);
     safeSub(true, 'security_events', setSecurityEvents);
     safeSub(isSuper || hasDepartment('platform_settings'), 'platform_settings', setSettingsDocs);
-    safeSub(
-      isSuper || hasDepartment('platform_settings') || hasDepartment('activity_logs'),
-      'email_logs',
-      setEmailLogs
-    );
+    const canViewEmail = isSuper || hasEmailPermission('email.view');
+    const canGlobalEmailRead =
+      isSuper || hasDepartment('platform_settings') || hasDepartment('activity_logs');
+    if (canGlobalEmailRead) {
+      unsubs.push(
+        subscribeDepartmentEmailCollection<EmailLogRecord>('email_logs', 'all', null, setEmailLogs, (err) =>
+          console.warn('Listener warning on email_logs:', err.message)
+        )
+      );
+    } else if (canViewEmail && primaryDepartment) {
+      unsubs.push(
+        subscribeDepartmentEmailCollection<EmailLogRecord>(
+          'email_logs',
+          'dept',
+          primaryDepartment,
+          setEmailLogs,
+          (err) => console.warn('Listener warning on email_logs:', err.message)
+        )
+      );
+    }
+
+    if (isSuper || hasDepartment('platform_settings')) {
+      unsubs.push(
+        subscribeDepartmentEmailCollection<EmailTemplateRecord>(
+          'email_templates',
+          'all',
+          null,
+          setEmailTemplates,
+          (err) => console.warn('Listener warning on email_templates:', err.message)
+        ),
+        subscribeDepartmentEmailCollection<EmailCampaignRecord>(
+          'email_campaigns',
+          'all',
+          null,
+          setEmailCampaigns,
+          (err) => console.warn('Listener warning on email_campaigns:', err.message)
+        )
+      );
+    } else if (canViewEmail && primaryDepartment) {
+      unsubs.push(
+        subscribeDepartmentEmailCollection<EmailTemplateRecord>(
+          'email_templates',
+          'templates_dept',
+          primaryDepartment,
+          setEmailTemplates,
+          (err) => console.warn('Listener warning on email_templates:', err.message)
+        ),
+        subscribeDepartmentEmailCollection<EmailCampaignRecord>(
+          'email_campaigns',
+          'dept',
+          primaryDepartment,
+          setEmailCampaigns,
+          (err) => console.warn('Listener warning on email_campaigns:', err.message)
+        )
+      );
+    }
+
+    if (isSuper) {
+      unsubs.push(
+        subscribeDepartmentEmailCollection<EmailDraftRecord>(
+          'email_drafts',
+          'all',
+          null,
+          setEmailDrafts,
+          (err) => console.warn('Listener warning on email_drafts:', err.message)
+        )
+      );
+    } else if (canViewEmail || hasEmailPermission('email.compose')) {
+      unsubs.push(
+        subscribeDepartmentEmailCollection<EmailDraftRecord>(
+          'email_drafts',
+          'owner',
+          firebaseUser.uid,
+          setEmailDrafts,
+          (err) => console.warn('Listener warning on email_drafts:', err.message)
+        )
+      );
+    }
     safeSub(true, 'announcements', setAnnouncements);
     safeSub(isSuper || hasDepartment('client_management') || hasDepartment('user_management'), 'support_tickets', setTickets);
     safeSub(true, 'notifications', setNotifications);
@@ -404,16 +533,30 @@ function ControlCentreWorkspace() {
       );
     }
 
+    let schedulerTimer: number | undefined;
+    if (canViewEmail || hasEmailPermission('email.schedule')) {
+      schedulerTimer = window.setInterval(() => {
+        void processDueScheduledEmailsNow().catch(() => undefined);
+      }, 30_000);
+    }
+
     return () => {
+      if (schedulerTimer) window.clearInterval(schedulerTimer);
       for (const unsub of unsubs) {
         unsub();
       }
     };
-  }, [firebaseUser, adminProfile, isSuperAdmin, canManageStaff, primaryDepartment, hasDepartment, refreshStatus]);
+  }, [firebaseUser, adminProfile, isSuperAdmin, canManageStaff, primaryDepartment, hasAction, hasDepartment, hasEmailPermission, refreshStatus]);
 
-  // Invitation Registration Flow (?invite=<token> or #/invite/<token>)
-  if (inviteToken && !adminProfile) {
-    return <InviteRegisterView token={inviteToken} onExitToLogin={exitInviteToLogin} />;
+  // Invitation Registration Flow (/join/:code, ?invite=<token>, or #/invite/<token>)
+  if (inviteToken) {
+    return (
+      <InviteRegisterView
+        token={inviteToken}
+        currentAdminEmail={adminProfile?.email || null}
+        onExitToLogin={exitInviteToLogin}
+      />
+    );
   }
 
   if (loading) {
@@ -432,6 +575,9 @@ function ControlCentreWorkspace() {
   }
 
   const activeDept = resolveAllowedDept(route.dept);
+  const pendingVerificationCount = adminUsers.filter(
+    (u) => u.status === 'pending_verification'
+  ).length;
 
   const renderEightDepartmentWorkplace = (dept: EightDepartmentId, inner: React.ReactNode) => (
     <DepartmentWorkplacePanels
@@ -453,6 +599,12 @@ function ControlCentreWorkspace() {
       loginHistory={loginHistory}
       notifications={notifications}
       departmentMessages={departmentMessages}
+      settingsDocs={settingsDocs}
+      emailLogs={emailLogs}
+      emailTemplates={emailTemplates}
+      emailDrafts={emailDrafts}
+      emailCampaigns={emailCampaigns}
+      invitations={invitations}
     >
       {inner}
     </DepartmentWorkplacePanels>
@@ -467,6 +619,7 @@ function ControlCentreWorkspace() {
       onNavigate={navigate}
       onOpenSearch={() => setSearchOpen(true)}
       notifications={notifications}
+      pendingVerificationCount={pendingVerificationCount}
     >
       {activeDept === 'overview' && isSuperAdmin ? (
         <MainDashboard
@@ -493,7 +646,25 @@ function ControlCentreWorkspace() {
           invitations={invitations}
           loginHistory={loginHistory}
           activityLogs={activityLogs}
+          verificationAudits={verificationAudits}
         />
+      ) : null}
+
+      {activeDept === 'email_centre' && hasDepartment('email_centre') ? (
+        <EmailCentreView
+          subId={route.subId || 'dashboard'}
+          onSelectSub={(s) => navigate('email_centre', s)}
+          adminProfile={adminProfile}
+          settingsDocs={settingsDocs}
+          emailLogs={emailLogs}
+          emailTemplates={emailTemplates}
+          emailDrafts={emailDrafts}
+          emailCampaigns={emailCampaigns}
+        />
+      ) : null}
+
+      {activeDept === 'google_drive' && hasDepartment('google_drive') ? (
+        <GoogleDriveView settingsDocs={settingsDocs} />
       ) : null}
 
       {activeDept === 'user_management'
@@ -506,6 +677,7 @@ function ControlCentreWorkspace() {
               adminUsers={adminUsers}
               activityLogs={activityLogs}
               securityEvents={securityEvents}
+              emailTemplates={emailTemplates}
             />
           )
         : null}
@@ -520,6 +692,7 @@ function ControlCentreWorkspace() {
               tasks={tasks}
               tickets={tickets}
               activityLogs={activityLogs}
+              emailTemplates={emailTemplates}
             />
           )
         : null}
@@ -533,6 +706,8 @@ function ControlCentreWorkspace() {
               tasks={tasks}
               categories={categories}
               activityLogs={activityLogs}
+              clients={clients}
+              emailTemplates={emailTemplates}
             />
           )
         : null}
@@ -547,6 +722,9 @@ function ControlCentreWorkspace() {
               assignments={assignments}
               workSubmissions={workSubmissions}
               disputes={disputes}
+              users={users}
+              clients={clients}
+              emailTemplates={emailTemplates}
             />
           )
         : null}
@@ -561,6 +739,8 @@ function ControlCentreWorkspace() {
               transactions={transactions}
               withdrawals={withdrawals}
               activityLogs={activityLogs}
+              users={users}
+              emailTemplates={emailTemplates}
             />
           )
         : null}
@@ -575,6 +755,7 @@ function ControlCentreWorkspace() {
               connectedApps={connectedApps}
               webhooks={webhooks}
               apiLogs={apiLogs}
+              emailTemplates={emailTemplates}
             />
           )
         : null}
@@ -587,6 +768,7 @@ function ControlCentreWorkspace() {
               onSelectSub={(s) => navigate('activity_logs', s)}
               activityLogs={activityLogs}
               securityEvents={securityEvents}
+              emailTemplates={emailTemplates}
             />
           )
         : null}
@@ -600,6 +782,7 @@ function ControlCentreWorkspace() {
               settingsDocs={settingsDocs}
               activityLogs={activityLogs}
               emailLogs={emailLogs}
+              onOpenEmailCentre={() => navigate('email_centre', 'dashboard')}
             />
           )
         : null}

@@ -1,6 +1,10 @@
 import React, { useMemo, useState } from 'react';
 import { ArrowUpRight, Search, X } from 'lucide-react';
-import { EIGHT_DEPARTMENTS, STAFF_MANAGEMENT_SUBDEPARTMENTS } from '../../config/navigation';
+import {
+  EIGHT_DEPARTMENTS,
+  EMAIL_CENTRE_SUBDEPARTMENTS,
+  STAFF_MANAGEMENT_SUBDEPARTMENTS,
+} from '../../config/navigation';
 import { useAuth } from '../../context/AuthContext';
 import type {
   AssignmentRecord,
@@ -46,6 +50,29 @@ export function GlobalSearchModal({
             subId: sub.id,
           });
         }
+      }
+    }
+
+    if (hasDepartment('email_centre')) {
+      for (const sub of EMAIL_CENTRE_SUBDEPARTMENTS) {
+        if (!q || sub.label.toLowerCase().includes(q) || 'email centre'.includes(q)) {
+          navMatches.push({
+            label: sub.label,
+            context: 'Email Centre',
+            dept: 'email_centre',
+            subId: sub.id,
+          });
+        }
+      }
+    }
+
+    if (hasDepartment('google_drive')) {
+      if (!q || 'google drive workspace files'.includes(q)) {
+        navMatches.push({
+          label: 'Google Drive Workspace',
+          context: 'Google Workspace',
+          dept: 'google_drive',
+        });
       }
     }
 

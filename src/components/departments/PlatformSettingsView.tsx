@@ -3,6 +3,7 @@ import {
   Bell,
   Download,
   Globe,
+  HardDrive,
   Lock,
   Mail,
   Palette,
@@ -15,10 +16,15 @@ import { EIGHT_DEPARTMENTS } from '../../config/navigation';
 import { OFFICIAL_PLATFORM_EMAIL } from '../../config/platformIdentity';
 import { useAuth } from '../../context/AuthContext';
 import {
+  connectGoogleDriveAccount,
+  useDriveConnection,
+} from '../../services/driveOAuth';
+import {
   apiFetch,
   savePlatformSettingsSection,
   uploadPlatformLogo,
 } from '../../services/firestoreService';
+import { uploadDriveTextFile } from '../../services/googleDriveService';
 import type {
   ActivityLog,
   EmailLogRecord,
@@ -35,6 +41,7 @@ interface PlatformSettingsViewProps {
   settingsDocs: PlatformSetting[];
   activityLogs: ActivityLog[];
   emailLogs: EmailLogRecord[];
+  onOpenEmailCentre?: () => void;
 }
 
 export function PlatformSettingsView({
@@ -43,6 +50,7 @@ export function PlatformSettingsView({
   settingsDocs,
   activityLogs,
   emailLogs,
+  onOpenEmailCentre,
 }: PlatformSettingsViewProps) {
   const { adminProfile, hasAction } = useAuth();
   const subdepartments =
@@ -74,6 +82,9 @@ export function PlatformSettingsView({
   const [notifEmailEnabled, setNotifEmailEnabled] = useState(true);
   const [notifSmsEnabled, setNotifSmsEnabled] = useState(false);
 
+  const driveConn = useDriveConnection();
+  const [backingUpToDrive, setBackingUpToDrive] = useState(false);
+  const [connectingDrive, setConnectingDrive] = useState(false);
   const [messagingStatus, setMessagingStatus] = useState<MessagingStatus | null>(null);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
@@ -206,6 +217,37 @@ export function PlatformSettingsView({
     a.download = `swas-tasks-settings-snapshot-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const handleBackupSettingsToDrive = async () => {
+    setFeedback(null);
+    setBackingUpToDrive(true);
+    try {
+      if (!driveConn.connected) {
+        setConnectingDrive(true);
+        await connectGoogleDriveAccount();
+        setConnectingDrive(false);
+      }
+      const dateStamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const fileName = `swas-tasks-settings-snapshot-${dateStamp}.json`;
+      await uploadDriveTextFile(
+        fileName,
+        JSON.stringify(settingsDocs, null, 2),
+        'application/json'
+      );
+      setFeedback({
+        type: 'ok',
+        text: `Saved settings snapshot "${fileName}" directly to Google Drive.`,
+      });
+    } catch (err) {
+      setFeedback({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'Google Drive backup failed.',
+      });
+    } finally {
+      setConnectingDrive(false);
+      setBackingUpToDrive(false);
+    }
   };
 
   const recentConfigLogs = activityLogs
@@ -527,12 +569,34 @@ export function PlatformSettingsView({
           </div>
         </form>
       ) : subId === 'email_configuration' ? (
-        <CentralEmailSettingsPanel
-          adminProfile={adminProfile}
-          canEdit={hasAction('update')}
-          settingsDocs={settingsDocs}
-          emailLogs={emailLogs}
-        />
+        <div className="space-y-4">
+          {onOpenEmailCentre ? (
+            <div className="bg-white border border-slate-200 rounded-lg p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <p className="typo-body font-semibold text-[#172B46]">
+                  Full Email Communication Centre
+                </p>
+                <p className="typo-meta text-[#75869D]">
+                  Open the dedicated Email Centre for campaigns, templates, scheduled queue, drafts, and delivery analytics.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={onOpenEmailCentre}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 typo-button text-white bg-[#1265C8] hover:bg-[#102B50] rounded-md whitespace-nowrap self-start sm:self-auto"
+              >
+                <Mail className="w-3.5 h-3.5" />
+                Open Full Email Centre
+              </button>
+            </div>
+          ) : null}
+          <CentralEmailSettingsPanel
+            adminProfile={adminProfile}
+            canEdit={hasAction('update')}
+            settingsDocs={settingsDocs}
+            emailLogs={emailLogs}
+          />
+        </div>
       ) : subId === 'security_settings' ? (
         <form
           onSubmit={(e) =>
@@ -719,18 +783,36 @@ export function PlatformSettingsView({
             Backup & Recovery Procedures
           </h2>
           <p className="typo-body text-[#75869D]">
-            Export a verified JSON snapshot of current Firestore platform configuration documents,
-            and review documented Cloud Firestore Point-in-Time Recovery (PITR) and scheduled export
-            commands in <span className="font-mono">SETUP_GUIDE.md</span>.
+            Export a verified JSON snapshot of current Firestore platform configuration documents
+            locally or directly to Google Drive, and review documented Cloud Firestore Point-in-Time
+            Recovery (PITR) and scheduled export commands in{' '}
+            <span className="font-mono">SETUP_GUIDE.md</span>.
           </p>
-          <button
-            type="button"
-            onClick={handleDownloadSettingsSnapshot}
-            className="inline-flex items-center gap-2 px-4 py-2 typo-button text-white bg-[#102B50] hover:bg-[#172B46] rounded-md"
-          >
-            <Download className="w-4 h-4" />
-            Download Configuration Snapshot (JSON)
-          </button>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={handleDownloadSettingsSnapshot}
+              className="inline-flex items-center gap-2 px-4 py-2 typo-button text-white bg-[#102B50] hover:bg-[#172B46] rounded-md"
+            >
+              <Download className="w-4 h-4" />
+              Download Configuration Snapshot (JSON)
+            </button>
+            <button
+              type="button"
+              disabled={backingUpToDrive || connectingDrive}
+              onClick={() => void handleBackupSettingsToDrive()}
+              className="inline-flex items-center gap-2 px-4 py-2 typo-button text-white bg-[#1265C8] hover:bg-[#102B50] rounded-md disabled:opacity-50"
+            >
+              <HardDrive className="w-4 h-4" />
+              {connectingDrive
+                ? 'Connecting Google Drive...'
+                : backingUpToDrive
+                ? 'Saving to Drive...'
+                : driveConn.connected
+                ? `Save Snapshot to Drive (${driveConn.connectedEmail || 'Connected'})`
+                : 'Sign in with Google & Save to Drive'}
+            </button>
+          </div>
         </div>
       )}
 

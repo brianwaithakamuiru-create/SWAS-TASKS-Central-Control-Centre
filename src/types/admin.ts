@@ -11,6 +11,8 @@ export type EightDepartmentId =
 export type DepartmentId =
   | 'overview'
   | 'staff_management'
+  | 'email_centre'
+  | 'google_drive'
   | EightDepartmentId
   | 'system_health'
   | 'support_announcements';
@@ -27,6 +29,17 @@ export type AdminRoleId =
   | 'PLATFORM_CONFIGURATION_ADMIN'
   | (string & {});
 
+export type EmailPermission =
+  | 'email.view'
+  | 'email.compose'
+  | 'email.send'
+  | 'email.send_bulk'
+  | 'email.schedule'
+  | 'email.manage_templates'
+  | 'email.view_reports'
+  | 'email.retry_failed'
+  | 'email.manage_settings';
+
 export type AdminAction =
   | 'view'
   | 'read'
@@ -38,7 +51,10 @@ export type AdminAction =
   | 'suspend'
   | 'revoke'
   | 'export'
-  | 'manage';
+  | 'manage'
+  | EmailPermission;
+
+export type InvitationType = 'staff_account' | 'department_member' | 'department_admin';
 
 export interface AdminUser {
   uid: string;
@@ -49,10 +65,21 @@ export interface AdminUser {
   phoneVerified?: boolean;
   primaryDepartment?: 'all' | EightDepartmentId;
   role: AdminRoleId;
-  status: 'active' | 'suspended' | 'deactivated' | 'revoked';
+  status: 'pending_verification' | 'active' | 'suspended' | 'deactivated' | 'revoked' | 'rejected';
+  verificationStatus?: 'pending_verification' | 'approved' | 'rejected';
+  accessStatus?: 'inactive' | 'active' | 'blocked';
   departments: DepartmentId[];
   actions: AdminAction[];
   invitationId?: string;
+  invitationType?: InvitationType;
+  registeredAt?: string;
+  approvedBy?: string;
+  approvedByName?: string;
+  approvedAt?: string;
+  rejectedBy?: string;
+  rejectedByName?: string;
+  rejectedAt?: string;
+  rejectionReason?: string;
   sessionRevokedAt?: string;
   lastLoginAt?: string;
   mfaEnabled?: boolean;
@@ -72,21 +99,53 @@ export interface AdminUser {
 
 export interface StaffInvitation {
   invitationId: string;
+  shortCode?: string;
+  codeHash?: string;
   tokenHash: string;
-  fullName: string;
-  email: string;
-  phone: string;
+  invitationType?: InvitationType;
+  fullName?: string;
+  email?: string;
+  emailRestricted?: boolean;
+  phone?: string;
+  requiresPhone?: boolean;
+  singleUse?: boolean;
   department: EightDepartmentId;
   departmentRole: string;
   permissions: AdminAction[];
-  status: 'pending' | 'accepted' | 'expired' | 'revoked';
+  shareMessage?: string;
+  inviterName?: string;
+  status: 'pending' | 'opened' | 'accepted' | 'expired' | 'revoked';
   expiresAt: string;
-  emailDeliveryStatus?: 'sent' | 'not_configured' | 'failed';
+  emailDeliveryStatus?: 'sent' | 'not_configured' | 'failed' | 'not_sent';
+  openedAt?: string;
+  openedCount?: number;
+  acceptedCount?: number;
   acceptedByUid?: string;
+  acceptedByEmail?: string;
   acceptedAt?: string;
+  revokedBy?: string;
+  revokedAt?: string;
+  revokeReason?: string;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface StaffVerificationAudit {
+  auditId: string;
+  staffUid: string;
+  staffName: string;
+  staffEmail: string;
+  invitationId?: string;
+  department: EightDepartmentId | string;
+  assignedRole: string;
+  decision: 'registered' | 'approved' | 'rejected' | 'suspended' | 'reactivated';
+  previousStatus?: string;
+  newStatus: string;
+  decidedByUid: string;
+  decidedByName?: string;
+  decisionReason?: string;
+  createdAt: string;
 }
 
 export interface DepartmentMessage {
@@ -112,13 +171,29 @@ export interface StaffLoginHistory {
 export interface MessagingStatus {
   emailConfigured: boolean;
   emailProvider: string;
-  emailProviderType?: 'gmail_smtp' | 'smtp' | 'resend' | 'none';
+  emailProviderType?: 'gmail_smtp' | 'gmail_oauth' | 'smtp' | 'resend' | 'none';
   emailStatusLabel?: string;
   officialEmail?: string;
   senderDisplayName?: string;
   replyToEmail?: string;
   smsConfigured: boolean;
   smsProvider: string;
+}
+
+export interface GmailAuthCheckResult {
+  authorized: boolean;
+  connectedEmail: string;
+  officialEmail: string;
+  matchesOfficialEmail: boolean;
+  hasGmailSendScope: boolean;
+  scopes: string[];
+  expiresInSeconds?: number;
+  messagesTotal?: number;
+  threadsTotal?: number;
+  smtpConfigured: boolean;
+  smtpProvider: string;
+  error?: string;
+  checkedAt: string;
 }
 
 export interface EmailVerificationStatus {
@@ -136,23 +211,156 @@ export interface EmailVerificationStatus {
   checkedAt: string;
 }
 
+export interface EmailAttachmentMeta {
+  name: string;
+  contentType: string;
+  sizeBytes: number;
+  storagePath?: string;
+  downloadUrl: string;
+}
+
+export type EmailTemplateCategory =
+  | 'General Announcements'
+  | 'Account Updates'
+  | 'Welcome Emails'
+  | 'Payment Notifications'
+  | 'Important Notices'
+  | 'Task Notifications'
+  | 'Warnings'
+  | 'Support Responses'
+  | 'Policy Updates'
+  | 'Custom Templates';
+
+export interface EmailTemplateRecord {
+  templateId: string;
+  name: string;
+  category: EmailTemplateCategory;
+  department: 'all' | EightDepartmentId;
+  subject: string;
+  htmlBody: string;
+  textBody?: string;
+  ctaLabel?: string;
+  ctaUrl?: string;
+  variables?: string[];
+  isActive?: boolean;
+  usageCount?: number;
+  createdByUid?: string;
+  createdByEmail?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EmailDraftRecord {
+  draftId: string;
+  department: 'all' | EightDepartmentId | string;
+  recipientEmails?: string[];
+  ccEmails?: string[];
+  bccEmails?: string[];
+  subject: string;
+  htmlBody: string;
+  textBody?: string;
+  ctaLabel?: string;
+  ctaUrl?: string;
+  templateId?: string;
+  attachments?: EmailAttachmentMeta[];
+  scheduledFor?: string;
+  createdByUid: string;
+  createdByEmail?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EmailCampaignRecord {
+  campaignId: string;
+  name: string;
+  department: 'all' | EightDepartmentId | string;
+  subject: string;
+  htmlBody?: string;
+  textBody?: string;
+  audienceFilter?: string;
+  templateId?: string;
+  totalRecipients: number;
+  sentCount: number;
+  failedCount: number;
+  bouncedCount?: number;
+  status: 'queued' | 'sending' | 'completed' | 'partially_failed' | 'failed' | 'scheduled' | 'cancelled';
+  scheduledFor?: string;
+  completedAt?: string;
+  createdByUid: string;
+  createdByEmail?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface EmailLogRecord {
   emailLogId: string;
   scope: 'public_website' | 'control_centre';
+  department?: 'all' | EightDepartmentId | string;
+  kind?: 'automatic' | 'manual' | 'scheduled' | 'bulk';
   eventType: string;
+  campaignId?: string;
   recipientEmail: string;
+  recipientName?: string;
+  recipientUid?: string;
+  recipientType?: 'user' | 'worker' | 'client' | 'admin' | 'custom';
+  ccEmails?: string[];
+  bccEmails?: string[];
   subject: string;
   bodyPreview?: string;
+  htmlBody?: string;
+  ctaLabel?: string;
+  ctaUrl?: string;
+  attachments?: EmailAttachmentMeta[];
   fromAddress: string;
   replyToAddress: string;
   provider: string;
   providerMessageId?: string;
-  status: 'sent' | 'failed' | 'not_configured';
+  status:
+    | 'queued'
+    | 'sending'
+    | 'sent'
+    | 'accepted'
+    | 'delivered'
+    | 'failed'
+    | 'bounced'
+    | 'rejected'
+    | 'deferred'
+    | 'not_configured'
+    | 'scheduled'
+    | 'cancelled'
+    | 'duplicate_blocked';
   errorDetail?: string;
+  deliveryStatusDetail?: string;
+  bounceReason?: string;
   retryCount?: number;
+  batchId?: string;
+  scheduledFor?: string;
+  sentAt?: string;
+  deliveredAt?: string;
+  openedAt?: string;
+  clickedAt?: string;
+  idempotencyKey?: string;
+  sourceRecord?: string;
   triggeredByUid?: string;
+  triggeredByEmail?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface EmailRecipientOption {
+  id: string;
+  uid: string;
+  name: string;
+  email: string;
+  phone?: string;
+  companyName?: string;
+  recipientType: 'user' | 'worker' | 'client' | 'admin';
+  department: 'all' | EightDepartmentId;
+  status: string;
+  accountStatus?: string;
+  registrationDate?: string;
+  contextLabel?: string;
+  sourceRecord?: string;
 }
 
 export interface UserAccount {
@@ -484,7 +692,8 @@ export interface AdminNotification {
     | 'api_failure'
     | 'security_alert'
     | 'system_error'
-    | 'staff_invitation';
+    | 'staff_invitation'
+    | 'staff_verification';
   department?: string;
   title: string;
   message: string;

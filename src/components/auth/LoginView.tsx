@@ -1,5 +1,17 @@
 import React, { useState } from 'react';
-import { ArrowRight, KeyRound, Lock, Mail, ShieldCheck, AlertCircle, LogOut } from 'lucide-react';
+import {
+  AlertCircle,
+  ArrowRight,
+  Clock,
+  KeyRound,
+  Lock,
+  LogOut,
+  Mail,
+  RefreshCw,
+  ShieldCheck,
+  XCircle,
+} from 'lucide-react';
+import { EIGHT_DEPARTMENTS } from '../../config/navigation';
 import { OFFICIAL_PLATFORM_EMAIL } from '../../config/platformIdentity';
 import { useAuth } from '../../context/AuthContext';
 
@@ -7,14 +19,17 @@ export function LoginView() {
   const {
     firebaseUser,
     adminProfile,
+    accountStatusInfo,
     authError,
     sessionExpired,
     signInWithGoogle,
     signInWithEmail,
     sendResetEmail,
+    refreshProfile,
     logout,
     clearAuthError,
   } = useAuth();
+  const [refreshingStatus, setRefreshingStatus] = useState(false);
 
   const [mode, setMode] = useState<'login' | 'reset'>('login');
   const [email, setEmail] = useState('');
@@ -109,32 +124,130 @@ export function LoginView() {
       <div className="flex-1 flex items-center justify-center p-6 sm:p-10 lg:p-14">
         <div className="w-full max-w-md bg-white border border-slate-200 rounded-lg p-7 sm:p-8">
           {firebaseUser && !adminProfile ? (
-            <div>
-              <div className="flex items-center gap-2.5 text-[#D34552] mb-3">
-                <AlertCircle className="w-5 h-5 shrink-0" />
-                <h2 className="typo-section-heading text-[#172B46]">
-                  Administrator Authorization Required
-                </h2>
+            accountStatusInfo?.status === 'pending_verification' ? (
+              <div>
+                <div className="flex items-center gap-2.5 text-[#B7791F] mb-3">
+                  <Clock className="w-5 h-5 shrink-0" />
+                  <h2 className="typo-section-heading text-[#172B46]">
+                    Account Pending Verification
+                  </h2>
+                </div>
+                <p className="typo-body text-[#75869D]">
+                  Your staff account (<span className="font-medium text-[#172B46]">{firebaseUser.email}</span>) has been registered successfully and is awaiting{' '}
+                  <span className="font-semibold text-[#172B46]">Super Administrator verification</span>{' '}
+                  before workplace access is enabled.
+                </p>
+                <div className="mt-4 p-3.5 rounded-md bg-[#F3F6FA] border border-slate-200 space-y-1.5 typo-meta">
+                  <div className="flex justify-between gap-2">
+                    <span className="text-[#75869D]">Assigned Department</span>
+                    <span className="font-semibold text-[#172B46]">
+                      {EIGHT_DEPARTMENTS.find((d) => d.id === accountStatusInfo.department)?.label ||
+                        accountStatusInfo.department ||
+                        'Pending Assignment'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-[#75869D]">Assigned Role</span>
+                    <span className="font-semibold text-[#172B46]">
+                      {accountStatusInfo.role || 'Staff Member'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-[#75869D]">Verification Status</span>
+                    <span className="font-semibold text-[#B7791F]">Pending Super Admin Approval</span>
+                  </div>
+                </div>
+                <p className="mt-3 typo-meta text-[#75869D]">
+                  Once verified by the Super Administrator, you will receive an approval email from{' '}
+                  <span className="font-mono text-[#172B46]">{OFFICIAL_PLATFORM_EMAIL}</span>.
+                </p>
+                <div className="mt-5 space-y-2.5">
+                  <button
+                    type="button"
+                    disabled={refreshingStatus}
+                    onClick={async () => {
+                      setRefreshingStatus(true);
+                      try {
+                        await refreshProfile();
+                      } finally {
+                        setRefreshingStatus(false);
+                      }
+                    }}
+                    className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 typo-button text-white bg-[#1265C8] hover:bg-[#102B50] rounded-md transition-colors disabled:opacity-60"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${refreshingStatus ? 'animate-spin' : ''}`} />
+                    {refreshingStatus ? 'Checking Status...' : 'Refresh Verification Status'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void logout()}
+                    className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 typo-button text-[#172B46] bg-[#F3F6FA] hover:bg-slate-200 border border-slate-200 rounded-md transition-colors"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    Sign Out and Switch Account
+                  </button>
+                </div>
               </div>
-              <p className="typo-body text-[#75869D]">
-                Signed in as <span className="font-medium text-[#172B46]">{firebaseUser.email}</span>.
-                {authError
-                  ? ` ${authError}`
-                  : ' This account does not have active administrator privileges.'}
-              </p>
-              <p className="mt-3 typo-meta text-[#75869D]">
-                Only the Super Administrator can provision and authorize additional administrator
-                accounts.
-              </p>
-              <button
-                type="button"
-                onClick={() => void logout()}
-                className="mt-6 w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 typo-button text-white bg-[#102B50] hover:bg-[#172B46] rounded-md transition-colors"
-              >
-                <LogOut className="w-4 h-4" />
-                Sign Out and Switch Account
-              </button>
-            </div>
+            ) : accountStatusInfo?.status === 'rejected' ? (
+              <div>
+                <div className="flex items-center gap-2.5 text-[#D34552] mb-3">
+                  <XCircle className="w-5 h-5 shrink-0" />
+                  <h2 className="typo-section-heading text-[#172B46]">
+                    Staff Account Not Approved
+                  </h2>
+                </div>
+                <p className="typo-body text-[#75869D]">
+                  Signed in as <span className="font-medium text-[#172B46]">{firebaseUser.email}</span>.
+                  Your staff registration was rejected during Super Administrator verification.
+                </p>
+                {accountStatusInfo.rejectionReason ? (
+                  <div className="mt-4 p-3 rounded-md bg-red-50 border border-red-200 text-xs text-[#D34552]">
+                    <p className="font-semibold mb-0.5">Recorded Reason</p>
+                    <p>{accountStatusInfo.rejectionReason}</p>
+                  </div>
+                ) : null}
+                <p className="mt-3 typo-meta text-[#75869D]">
+                  Contact your department administrator or Super Administrator at{' '}
+                  <span className="font-mono text-[#172B46]">{OFFICIAL_PLATFORM_EMAIL}</span> if you
+                  require a new invitation.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void logout()}
+                  className="mt-5 w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 typo-button text-white bg-[#102B50] hover:bg-[#172B46] rounded-md transition-colors"
+                >
+                  <LogOut className="w-4 h-4" />
+                  Sign Out and Switch Account
+                </button>
+              </div>
+            ) : (
+              <div>
+                <div className="flex items-center gap-2.5 text-[#D34552] mb-3">
+                  <AlertCircle className="w-5 h-5 shrink-0" />
+                  <h2 className="typo-section-heading text-[#172B46]">
+                    Administrator Authorization Required
+                  </h2>
+                </div>
+                <p className="typo-body text-[#75869D]">
+                  Signed in as <span className="font-medium text-[#172B46]">{firebaseUser.email}</span>.
+                  {authError
+                    ? ` ${authError}`
+                    : ' This account does not have active administrator privileges.'}
+                </p>
+                <p className="mt-3 typo-meta text-[#75869D]">
+                  Only the Super Administrator can provision and authorize additional administrator
+                  accounts.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void logout()}
+                  className="mt-6 w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 typo-button text-white bg-[#102B50] hover:bg-[#172B46] rounded-md transition-colors"
+                >
+                  <LogOut className="w-4 h-4" />
+                  Sign Out and Switch Account
+                </button>
+              </div>
+            )
           ) : (
             <div>
               <div className="mb-6">

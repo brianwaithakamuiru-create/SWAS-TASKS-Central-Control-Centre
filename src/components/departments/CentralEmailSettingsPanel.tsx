@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
+  LogOut,
   Mail,
   RefreshCw,
   RotateCcw,
@@ -19,6 +20,12 @@ import {
   type EmailScope,
 } from '../../config/platformIdentity';
 import { apiFetch, savePlatformSettingsSection } from '../../services/firestoreService';
+import {
+  connectOfficialGmailAccount,
+  disconnectOfficialGmailAccount,
+  useGmailConnection,
+  verifyGmailConnectionWithBackend,
+} from '../../services/gmailOAuth';
 import type {
   AdminUser,
   EmailLogRecord,
@@ -26,6 +33,7 @@ import type {
   MessagingStatus,
   PlatformSetting,
 } from '../../types/admin';
+import { ConfirmModal } from '../common/ConfirmModal';
 import { EmptyState } from '../common/EmptyState';
 import { StatusText } from '../common/StatusText';
 import { TablePagination, usePaginatedList } from '../common/TablePagination';
@@ -58,6 +66,14 @@ export function CentralEmailSettingsPanel({
 
   const [senderDisplayName, setSenderDisplayName] = useState(OFFICIAL_SENDER_DISPLAY_NAME);
   const [replyToEmail, setReplyToEmail] = useState(OFFICIAL_REPLY_TO_EMAIL);
+  const [signatureHtml, setSignatureHtml] = useState(
+    '<p>Regards,<br/><strong>SWAS TASKS Organization</strong><br/>swastaskorg@gmail.com</p>'
+  );
+  const [footerText, setFooterText] = useState(
+    'Sent via SWAS TASKS Central Control Centre · Official Support: swastaskorg@gmail.com'
+  );
+  const [hourlyLimit, setHourlyLimit] = useState(120);
+  const [dailyLimit, setDailyLimit] = useState(1000);
   const [notificationRules, setNotificationRules] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {};
     for (const def of ALL_EMAIL_NOTIFICATION_TYPES) {
@@ -92,6 +108,12 @@ export function CentralEmailSettingsPanel({
     'Verifying official SWAS TASKS email delivery from swastaskorg@gmail.com.'
   );
   const [sendingTest, setSendingTest] = useState(false);
+  const [confirmTestOpen, setConfirmTestOpen] = useState(false);
+
+  // Gmail OAuth connector state
+  const gmailConn = useGmailConnection();
+  const [connectingGmail, setConnectingGmail] = useState(false);
+  const [confirmDisconnectOpen, setConfirmDisconnectOpen] = useState(false);
 
   // Delivery logs & failed records filter
   const [logFilter, setLogFilter] = useState<'all' | 'sent' | 'failed'>('all');
@@ -126,6 +148,19 @@ export function CentralEmailSettingsPanel({
       setReplyToEmail(cfg.replyToEmail);
     } else if (typeof cfg.senderEmail === 'string' && cfg.senderEmail) {
       setReplyToEmail(cfg.senderEmail);
+    }
+
+    if (typeof cfg.signatureHtml === 'string' && cfg.signatureHtml) {
+      setSignatureHtml(cfg.signatureHtml);
+    }
+    if (typeof cfg.footerText === 'string' && cfg.footerText) {
+      setFooterText(cfg.footerText);
+    }
+    if (typeof cfg.hourlyLimit === 'number' && cfg.hourlyLimit > 0) {
+      setHourlyLimit(cfg.hourlyLimit);
+    }
+    if (typeof cfg.dailyLimit === 'number' && cfg.dailyLimit > 0) {
+      setDailyLimit(cfg.dailyLimit);
     }
 
     if (cfg.notificationRules && typeof cfg.notificationRules === 'object') {
@@ -193,6 +228,10 @@ export function CentralEmailSettingsPanel({
           senderEmail: replyToEmail.trim().toLowerCase() || OFFICIAL_REPLY_TO_EMAIL,
           replyToEmail: replyToEmail.trim().toLowerCase() || OFFICIAL_REPLY_TO_EMAIL,
           officialEmail: OFFICIAL_PLATFORM_EMAIL,
+          signatureHtml: signatureHtml.trim(),
+          footerText: footerText.trim(),
+          hourlyLimit: Math.max(10, Number(hourlyLimit) || 120),
+          dailyLimit: Math.max(50, Number(dailyLimit) || 1000),
           notificationRules,
           templates,
         },
@@ -212,14 +251,67 @@ export function CentralEmailSettingsPanel({
     }
   };
 
-  const handleSendTestEmail = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleConnectGmail = async () => {
+    setConnectingGmail(true);
+    setFeedback(null);
+    try {
+      const snap = await connectOfficialGmailAccount();
+      if (snap.connected) {
+        setFeedback({
+          type: 'ok',
+          text: `Official Gmail account (${snap.connectedEmail || OFFICIAL_PLATFORM_EMAIL}) connected and authorized for sending.`,
+        });
+      } else {
+        setFeedback({
+          type: 'err',
+          text: snap.lastError || `Google authorization completed, but account did not match ${OFFICIAL_PLATFORM_EMAIL}.`,
+        });
+      }
+      void fetchEmailStatus();
+    } catch (err) {
+      setFeedback({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'Unable to connect official Gmail account.',
+      });
+    } finally {
+      setConnectingGmail(false);
+    }
+  };
+
+  const handleCheckGmailAuth = async () => {
+    setFeedback(null);
+    try {
+      const res = await verifyGmailConnectionWithBackend();
+      if (res.authorized && res.matchesOfficialEmail && res.hasGmailSendScope) {
+        setFeedback({
+          type: 'ok',
+          text: `Verified live Gmail OAuth authorization for ${res.connectedEmail} with gmail.send permission.`,
+        });
+      } else {
+        setFeedback({
+          type: res.smtpConfigured ? 'warn' : 'err',
+          text:
+            res.error ||
+            (res.smtpConfigured
+              ? `No browser Gmail OAuth session active; backend ${res.smtpProvider} is configured.`
+              : `Gmail OAuth is not yet authorized for ${OFFICIAL_PLATFORM_EMAIL}.`),
+        });
+      }
+    } catch (err) {
+      setFeedback({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'Gmail authorization check failed.',
+      });
+    }
+  };
+
+  const handleConfirmSendTestEmail = async () => {
     if (!testRecipient.trim()) return;
     setSendingTest(true);
     setFeedback(null);
     try {
       const res = await apiFetch<{
-        delivery: { sent: boolean; status: string; detail: string };
+        delivery: { sent: boolean; status: string; detail: string; error?: string };
       }>('/api/v1/admin/email/test', {
         method: 'POST',
         body: JSON.stringify({
@@ -231,18 +323,26 @@ export function CentralEmailSettingsPanel({
       if (res.delivery.sent) {
         setFeedback({ type: 'ok', text: res.delivery.detail });
       } else if (res.delivery.status === 'not_configured') {
-        setFeedback({ type: 'warn', text: res.delivery.detail });
+        setFeedback({ type: 'warn', text: res.delivery.error || res.delivery.detail });
       } else {
-        setFeedback({ type: 'err', text: res.delivery.detail });
+        setFeedback({ type: 'err', text: res.delivery.error || res.delivery.detail });
       }
+      setConfirmTestOpen(false);
     } catch (err) {
       setFeedback({
         type: 'err',
         text: err instanceof Error ? err.message : 'Test email request failed.',
       });
+      setConfirmTestOpen(false);
     } finally {
       setSendingTest(false);
     }
+  };
+
+  const handleSendTestEmail = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!testRecipient.trim()) return;
+    setConfirmTestOpen(true);
   };
 
   const handleRetryEmail = async (emailLogId: string) => {
@@ -308,7 +408,24 @@ export function CentralEmailSettingsPanel({
 
   const messaging = statusData?.messaging;
   const verification = statusData?.verification;
-  const emailConfigured = Boolean(messaging?.emailConfigured);
+  const emailConfigured = Boolean(messaging?.emailConfigured || gmailConn.connected);
+  const activeProviderLabel = gmailConn.connected
+    ? `Gmail OAuth (${OFFICIAL_PLATFORM_EMAIL})`
+    : messaging?.emailConfigured
+    ? messaging.emailProvider
+    : 'EMAIL SERVICE NOT CONFIGURED';
+
+  const recentFailedLogs = useMemo(
+    () =>
+      sortedLogs
+        .filter(
+          (l) =>
+            (l.status === 'failed' || l.status === 'rejected' || l.status === 'bounced') &&
+            Boolean(l.errorDetail)
+        )
+        .slice(0, 3),
+    [sortedLogs]
+  );
 
   const activeScopeEvents =
     templateScopeTab === 'public_website'
@@ -324,6 +441,136 @@ export function CentralEmailSettingsPanel({
 
   return (
     <div className="space-y-6">
+      {/* Official Gmail Organization Account Connection Card */}
+      <div className="bg-white border border-slate-200 rounded-lg p-6 space-y-4">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h2 className="typo-card-heading text-[#172B46]">
+                Official Organization Gmail Connection
+              </h2>
+              <StatusText
+                status={emailConfigured ? 'connected' : 'not_configured'}
+                label={activeProviderLabel}
+              />
+            </div>
+            <p className="typo-meta text-[#75869D]">
+              Connect <span className="font-mono text-[#172B46]">{OFFICIAL_PLATFORM_EMAIL}</span> to send real
+              emails directly from <strong className="text-[#172B46]">SWAS TASKS Organization &lt;{OFFICIAL_PLATFORM_EMAIL}&gt;</strong>.
+              OAuth tokens are kept strictly in active browser memory and cleared on sign-out.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <button
+              type="button"
+              disabled={!canEdit || connectingGmail || gmailConn.checking}
+              onClick={() => void handleConnectGmail()}
+              className="inline-flex items-center gap-2.5 px-4 py-2 bg-white hover:bg-[#F8FAFC] text-[#1F1F1F] border border-[#747775]/60 rounded-md text-sm font-medium transition-colors disabled:opacity-50"
+            >
+              <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
+                <path
+                  fill="#EA4335"
+                  d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
+                />
+                <path
+                  fill="#4285F4"
+                  d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
+                />
+                <path
+                  fill="#FBBC05"
+                  d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"
+                />
+                <path
+                  fill="#34A853"
+                  d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
+                />
+              </svg>
+              <span>
+                {connectingGmail
+                  ? 'Authorizing Gmail...'
+                  : gmailConn.connected
+                  ? 'Reconnect Gmail Account'
+                  : `Connect ${OFFICIAL_PLATFORM_EMAIL}`}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              disabled={gmailConn.checking}
+              onClick={() => void handleCheckGmailAuth()}
+              className="inline-flex items-center gap-1.5 px-3 py-2 typo-meta font-medium text-[#172B46] bg-[#F3F6FA] hover:bg-slate-200 border border-slate-200 rounded-md disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${gmailConn.checking ? 'animate-spin' : ''}`} />
+              Check Authorization & Sending
+            </button>
+
+            {gmailConn.connected || gmailConn.connectedEmail ? (
+              <button
+                type="button"
+                disabled={!canEdit}
+                onClick={() => setConfirmDisconnectOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-2 typo-meta font-medium text-[#D34552] bg-white hover:bg-red-50 border border-[#D34552]/30 rounded-md disabled:opacity-50"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                Disconnect
+              </button>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 typo-meta">
+          <div className="p-3 rounded-md bg-[#F3F6FA] border border-slate-200 space-y-1">
+            <span className="text-[#75869D] block">Official Sender Email</span>
+            <span className="font-mono font-semibold text-[#172B46]">{OFFICIAL_PLATFORM_EMAIL}</span>
+          </div>
+          <div className="p-3 rounded-md bg-[#F3F6FA] border border-slate-200 space-y-1">
+            <span className="text-[#75869D] block">Connected OAuth Account</span>
+            <span className="font-mono font-semibold text-[#172B46] block truncate">
+              {gmailConn.connectedEmail || 'Not Connected'}
+            </span>
+          </div>
+          <div className="p-3 rounded-md bg-[#F3F6FA] border border-slate-200 space-y-1">
+            <span className="text-[#75869D] block">Gmail Send Scope</span>
+            <StatusText
+              status={gmailConn.hasGmailSendScope ? 'verified' : gmailConn.connectedEmail ? 'failed' : 'pending'}
+              label={
+                gmailConn.hasGmailSendScope
+                  ? 'gmail.send Authorized'
+                  : gmailConn.connectedEmail
+                  ? 'Missing Permission'
+                  : 'Awaiting OAuth'
+              }
+            />
+          </div>
+          <div className="p-3 rounded-md bg-[#F3F6FA] border border-slate-200 space-y-1">
+            <span className="text-[#75869D] block">Background SMTP Fallback</span>
+            <StatusText
+              status={messaging?.emailConfigured ? 'connected' : 'not_configured'}
+              label={messaging?.emailConfigured ? messaging.emailProvider : 'Not Configured'}
+            />
+          </div>
+        </div>
+
+        {gmailConn.lastError || recentFailedLogs.length > 0 ? (
+          <div className="p-3.5 rounded-md bg-red-50/70 border border-red-200 space-y-1.5 typo-meta">
+            <p className="font-semibold text-[#D34552] flex items-center gap-1.5">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              Provider Diagnostics & Recent Errors
+            </p>
+            {gmailConn.lastError ? (
+              <p className="text-[#172B46]">{gmailConn.lastError}</p>
+            ) : null}
+            {recentFailedLogs.map((l) => (
+              <p key={l.emailLogId} className="text-xs text-[#75869D]">
+                <span className="font-mono text-[#172B46]">{l.recipientEmail}</span>:{' '}
+                <span className="text-[#D34552]">{l.errorDetail}</span>
+              </p>
+            ))}
+          </div>
+        ) : null}
+      </div>
+
       {/* Unconfigured Banner */}
       {!loadingStatus && !emailConfigured ? (
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -332,10 +579,10 @@ export function CentralEmailSettingsPanel({
             <div>
               <p className="typo-card-heading text-[#172B46]">EMAIL SERVICE NOT CONFIGURED</p>
               <p className="typo-meta text-[#75869D] mt-0.5">
-                Outgoing emails from <span className="font-mono text-[#172B46]">{OFFICIAL_PLATFORM_EMAIL}</span>{' '}
-                require server-side credentials (<span className="font-mono">GMAIL_SMTP_USER</span> +{' '}
-                <span className="font-mono">GMAIL_APP_PASSWORD</span>, custom SMTP, or{' '}
-                <span className="font-mono">RESEND_API_KEY</span>) stored strictly in backend environment variables.
+                Click <strong className="text-[#172B46]">Connect {OFFICIAL_PLATFORM_EMAIL}</strong> above to send
+                directly via Gmail, or configure server-side credentials (
+                <span className="font-mono">GMAIL_SMTP_USER</span> +{' '}
+                <span className="font-mono">GMAIL_APP_PASSWORD</span>) for automated background workflows.
               </p>
             </div>
           </div>
@@ -372,7 +619,7 @@ export function CentralEmailSettingsPanel({
             </div>
             <StatusText
               status={emailConfigured ? 'connected' : 'not_configured'}
-              label={emailConfigured ? messaging?.emailProvider : 'EMAIL SERVICE NOT CONFIGURED'}
+              label={activeProviderLabel}
             />
           </div>
 
@@ -434,6 +681,59 @@ export function CentralEmailSettingsPanel({
                   label={messaging?.smsConfigured ? 'Configured' : 'Not Configured'}
                 />
               </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block typo-label text-[#172B46] mb-1">
+                  Hourly Send Limit
+                </label>
+                <input
+                  type="number"
+                  min={10}
+                  max={10000}
+                  value={hourlyLimit}
+                  onChange={(e) => setHourlyLimit(Number(e.target.value) || 120)}
+                  className="w-full px-3 py-2 typo-input border border-slate-300 rounded-md"
+                />
+              </div>
+              <div>
+                <label className="block typo-label text-[#172B46] mb-1">
+                  Daily Send Limit
+                </label>
+                <input
+                  type="number"
+                  min={50}
+                  max={100000}
+                  value={dailyLimit}
+                  onChange={(e) => setDailyLimit(Number(e.target.value) || 1000)}
+                  className="w-full px-3 py-2 typo-input border border-slate-300 rounded-md"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block typo-label text-[#172B46] mb-1">
+                Default Email Signature (Sanitized HTML)
+              </label>
+              <textarea
+                rows={3}
+                value={signatureHtml}
+                onChange={(e) => setSignatureHtml(e.target.value)}
+                className="w-full px-3 py-2 typo-input font-mono text-xs border border-slate-300 rounded-md"
+              />
+            </div>
+
+            <div>
+              <label className="block typo-label text-[#172B46] mb-1">
+                Platform Footer Text
+              </label>
+              <input
+                type="text"
+                value={footerText}
+                onChange={(e) => setFooterText(e.target.value)}
+                className="w-full px-3 py-2 typo-input border border-slate-300 rounded-md"
+              />
             </div>
           </div>
 
@@ -925,6 +1225,32 @@ export function CentralEmailSettingsPanel({
           </>
         )}
       </div>
+
+      <ConfirmModal
+        open={confirmTestOpen}
+        title="Confirm Test Email Dispatch"
+        description={`Send a live verification email from ${senderDisplayName || OFFICIAL_SENDER_DISPLAY_NAME} <${OFFICIAL_PLATFORM_EMAIL}> to ${testRecipient}?`}
+        confirmLabel={sendingTest ? 'Dispatching...' : 'Send Test Email'}
+        onCancel={() => setConfirmTestOpen(false)}
+        onConfirm={() => void handleConfirmSendTestEmail()}
+      />
+
+      <ConfirmModal
+        open={confirmDisconnectOpen}
+        title="Disconnect Official Gmail Account"
+        description={`Disconnect ${gmailConn.connectedEmail || OFFICIAL_PLATFORM_EMAIL} from this browser session? Outgoing emails will stop using Gmail OAuth until reconnected.`}
+        confirmLabel="Disconnect Gmail"
+        danger
+        onCancel={() => setConfirmDisconnectOpen(false)}
+        onConfirm={async () => {
+          await disconnectOfficialGmailAccount();
+          setConfirmDisconnectOpen(false);
+          setFeedback({
+            type: 'warn',
+            text: `Disconnected Gmail OAuth session (${OFFICIAL_PLATFORM_EMAIL}).`,
+          });
+        }}
+      />
     </div>
   );
 }

@@ -7,6 +7,7 @@ import {
   FileBarChart2,
   FileCheck2,
   Gavel,
+  Mail,
   Search,
 } from 'lucide-react';
 import { EIGHT_DEPARTMENTS } from '../../config/navigation';
@@ -21,13 +22,17 @@ import {
 import type {
   AssignmentRecord,
   BidRecord,
+  ClientAccount,
   DisputeRecord,
+  EmailTemplateRecord,
+  UserAccount,
   WorkSubmission,
 } from '../../types/admin';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { EmptyState } from '../common/EmptyState';
 import { StatusText } from '../common/StatusText';
 import { TablePagination, usePaginatedList } from '../common/TablePagination';
+import { DepartmentEmailModal, type DepartmentEmailTarget } from './DepartmentEmailModal';
 
 interface BidsAssignmentsViewProps {
   subId: string;
@@ -36,6 +41,9 @@ interface BidsAssignmentsViewProps {
   assignments: AssignmentRecord[];
   workSubmissions: WorkSubmission[];
   disputes: DisputeRecord[];
+  users?: UserAccount[];
+  clients?: ClientAccount[];
+  emailTemplates?: EmailTemplateRecord[];
 }
 
 export function BidsAssignmentsView({
@@ -45,8 +53,14 @@ export function BidsAssignmentsView({
   assignments,
   workSubmissions,
   disputes,
+  users = [],
+  clients = [],
+  emailTemplates = [],
 }: BidsAssignmentsViewProps) {
-  const { adminProfile, hasAction } = useAuth();
+  const { adminProfile, hasAction, hasEmailPermission } = useAuth();
+  const canEmail = hasEmailPermission('email.compose');
+  const [emailTarget, setEmailTarget] = useState<DepartmentEmailTarget | null>(null);
+  const [emailSubjectDefault, setEmailSubjectDefault] = useState('');
   const subdepartments =
     EIGHT_DEPARTMENTS.find((d) => d.id === 'bids_assignments')?.subdepartments || [];
 
@@ -737,6 +751,33 @@ export function BidsAssignmentsView({
                               </button>
                             </>
                           ) : null}
+                          {canEmail ? (() => {
+                            const party =
+                              users.find((u) => u.uid === d.openedByUid) ||
+                              clients.find((c) => c.clientId === d.openedByUid || c.ownerUid === d.openedByUid);
+                            const partyEmail = party?.email;
+                            if (!partyEmail) return null;
+                            const partyName = 'fullName' in party ? party.fullName : party.name;
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEmailSubjectDefault(`SWAS TASKS – Dispute Notice (${d.disputeId})`);
+                                  setEmailTarget({
+                                    name: partyName,
+                                    email: partyEmail,
+                                    uid: d.openedByUid,
+                                    recipientType: d.openedByRole === 'client' ? 'client' : 'worker',
+                                    sourceRecord: `disputes/${d.disputeId}`,
+                                  });
+                                }}
+                                className="inline-flex items-center gap-1 text-xs font-medium text-[#1265C8] hover:underline"
+                              >
+                                <Mail className="w-3 h-3" />
+                                Email
+                              </button>
+                            );
+                          })() : null}
                         </td>
                       </tr>
                     ))}
@@ -806,6 +847,29 @@ export function BidsAssignmentsView({
                               {new Date(b.createdAt).toLocaleDateString()}
                             </span>
                           )}
+                          {canEmail ? (() => {
+                            const worker = users.find((u) => u.uid === b.workerUid);
+                            if (!worker?.email) return null;
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEmailSubjectDefault(`SWAS TASKS – Bid Update: ${b.taskTitle || b.taskId}`);
+                                  setEmailTarget({
+                                    name: worker.fullName,
+                                    email: worker.email,
+                                    uid: worker.uid,
+                                    recipientType: 'worker',
+                                    sourceRecord: `bids/${b.bidId}`,
+                                  });
+                                }}
+                                className="inline-flex items-center gap-1 text-xs font-medium text-[#1265C8] hover:underline"
+                              >
+                                <Mail className="w-3 h-3" />
+                                Email
+                              </button>
+                            );
+                          })() : null}
                         </td>
                       </tr>
                     ))}
@@ -886,6 +950,29 @@ export function BidsAssignmentsView({
                             Cancel
                           </button>
                         ) : null}
+                        {canEmail ? (() => {
+                          const worker = users.find((u) => u.uid === a.workerUid);
+                          if (!worker?.email) return null;
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEmailSubjectDefault(`SWAS TASKS – Assignment Update: ${a.taskTitle || a.assignmentId}`);
+                                setEmailTarget({
+                                  name: worker.fullName,
+                                  email: worker.email,
+                                  uid: worker.uid,
+                                  recipientType: 'worker',
+                                  sourceRecord: `assignments/${a.assignmentId}`,
+                                });
+                              }}
+                              className="inline-flex items-center gap-1 text-xs font-medium text-[#1265C8] hover:underline"
+                            >
+                              <Mail className="w-3 h-3" />
+                              Email
+                            </button>
+                          );
+                        })() : null}
                       </td>
                     </tr>
                   ))}
@@ -916,6 +1003,15 @@ export function BidsAssignmentsView({
           onConfirm={confirmState.onConfirm}
         />
       ) : null}
+
+      <DepartmentEmailModal
+        open={Boolean(emailTarget)}
+        onClose={() => setEmailTarget(null)}
+        department="bids_assignments"
+        initialRecipient={emailTarget}
+        defaultSubject={emailSubjectDefault}
+        templates={emailTemplates}
+      />
     </div>
   );
 }

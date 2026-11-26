@@ -5,6 +5,7 @@ import {
   CreditCard,
   Download,
   FileBarChart2,
+  Mail,
   Printer,
   Search,
   ShieldCheck,
@@ -20,8 +21,10 @@ import {
 } from '../../services/firestoreService';
 import type {
   ActivityLog,
+  EmailTemplateRecord,
   PaymentGatewayStatus,
   TransactionRecord,
+  UserAccount,
   WalletRecord,
   WithdrawalRequest,
 } from '../../types/admin';
@@ -29,6 +32,7 @@ import { ConfirmModal } from '../common/ConfirmModal';
 import { EmptyState } from '../common/EmptyState';
 import { StatusText } from '../common/StatusText';
 import { TablePagination, usePaginatedList } from '../common/TablePagination';
+import { DepartmentEmailModal, type DepartmentEmailTarget } from './DepartmentEmailModal';
 
 interface FinanceControlViewProps {
   subId: string;
@@ -37,6 +41,8 @@ interface FinanceControlViewProps {
   transactions: TransactionRecord[];
   withdrawals: WithdrawalRequest[];
   activityLogs: ActivityLog[];
+  users?: UserAccount[];
+  emailTemplates?: EmailTemplateRecord[];
 }
 
 function formatKes(value: number): string {
@@ -53,14 +59,22 @@ export function FinanceControlView({
   transactions,
   withdrawals,
   activityLogs,
+  users = [],
+  emailTemplates = [],
 }: FinanceControlViewProps) {
-  const { adminProfile, hasAction } = useAuth();
+  const { adminProfile, hasAction, hasEmailPermission } = useAuth();
+  const canEmail = hasEmailPermission('email.send') || hasEmailPermission('email.send_bulk');
   const subdepartments =
     EIGHT_DEPARTMENTS.find((d) => d.id === 'finance_control')?.subdepartments || [];
 
   const [search, setSearch] = useState('');
   const [gatewayStatus, setGatewayStatus] = useState<PaymentGatewayStatus | null>(null);
   const [feedback, setFeedback] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+  const [emailTarget, setEmailTarget] = useState<DepartmentEmailTarget | null>(null);
+  const [emailDefaults, setEmailDefaults] = useState<{ subject: string; body: string }>({
+    subject: '',
+    body: '',
+  });
   const [confirmState, setConfirmState] = useState<{
     open: boolean;
     title: string;
@@ -68,6 +82,14 @@ export function FinanceControlView({
     danger: boolean;
     onConfirm: (reason: string) => Promise<void>;
   } | null>(null);
+
+  const userByUid = useMemo(() => {
+    const map = new Map<string, UserAccount>();
+    for (const u of users) {
+      map.set(u.uid, u);
+    }
+    return map;
+  }, [users]);
 
   useEffect(() => {
     if (subId === 'payment_gateway' || subId === 'dashboard') {
@@ -586,6 +608,39 @@ export function FinanceControlView({
                             {wd.reviewedBy ? 'Reviewed' : 'Locked'}
                           </span>
                         )}
+                        {(() => {
+                          const worker = userByUid.get(wd.workerUid);
+                          if (!canEmail || !worker?.email) return null;
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEmailDefaults({
+                                  subject: `Withdrawal Request Update (${wd.withdrawalId})`,
+                                  body: `Hello ${worker.fullName},\n\nRegarding your withdrawal request ${wd.withdrawalId} for ${formatKes(wd.amountKes)} (status: ${wd.status}):\n\n`,
+                                });
+                                setEmailTarget({
+                                  name: worker.fullName,
+                                  email: worker.email,
+                                  uid: worker.uid,
+                                  recipientType: 'worker',
+                                  sourceRecord: `withdrawals/${wd.withdrawalId}`,
+                                  vars: {
+                                    client_name: worker.fullName,
+                                    first_name: worker.fullName.split(' ')[0] || worker.fullName,
+                                    email: worker.email,
+                                    account_id: worker.uid,
+                                    account_status: wd.status,
+                                  },
+                                });
+                              }}
+                              className="inline-flex items-center gap-1 text-xs font-medium text-[#1265C8] hover:underline"
+                            >
+                              <Mail className="w-3 h-3" />
+                              Email
+                            </button>
+                          );
+                        })()}
                       </td>
                     </tr>
                   ))}
@@ -650,7 +705,7 @@ export function FinanceControlView({
                       <td className="px-4 py-3">
                         <StatusText status={t.status} />
                       </td>
-                      <td className="px-4 py-3 text-right">
+                      <td className="px-4 py-3 text-right space-x-2 whitespace-nowrap">
                         {adminProfile && hasAction('update') && t.status === 'verified' ? (
                           <button
                             type="button"
@@ -672,6 +727,39 @@ export function FinanceControlView({
                             {t.reconciled ? 'Yes' : 'No'}
                           </span>
                         )}
+                        {(() => {
+                          const user = userByUid.get(t.userId);
+                          if (!canEmail || !user?.email) return null;
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEmailDefaults({
+                                  subject: `Transaction Notice (${t.transactionId})`,
+                                  body: `Hello ${user.fullName},\n\nThis is a finance update regarding transaction ${t.transactionId} (${formatKes(t.amountKes)}, status: ${t.status}):\n\n`,
+                                });
+                                setEmailTarget({
+                                  name: user.fullName,
+                                  email: user.email,
+                                  uid: user.uid,
+                                  recipientType: user.role === 'client' ? 'client' : 'worker',
+                                  sourceRecord: `transactions/${t.transactionId}`,
+                                  vars: {
+                                    client_name: user.fullName,
+                                    first_name: user.fullName.split(' ')[0] || user.fullName,
+                                    email: user.email,
+                                    account_id: user.uid,
+                                    account_status: t.status,
+                                  },
+                                });
+                              }}
+                              className="inline-flex items-center gap-1 text-xs font-medium text-[#1265C8] hover:underline"
+                            >
+                              <Mail className="w-3 h-3" />
+                              Email
+                            </button>
+                          );
+                        })()}
                       </td>
                     </tr>
                   ))}
@@ -702,6 +790,16 @@ export function FinanceControlView({
           onConfirm={confirmState.onConfirm}
         />
       ) : null}
+
+      <DepartmentEmailModal
+        open={Boolean(emailTarget)}
+        onClose={() => setEmailTarget(null)}
+        department="finance_control"
+        initialRecipient={emailTarget}
+        templates={emailTemplates}
+        defaultSubject={emailDefaults.subject}
+        defaultBody={emailDefaults.body}
+      />
     </div>
   );
 }

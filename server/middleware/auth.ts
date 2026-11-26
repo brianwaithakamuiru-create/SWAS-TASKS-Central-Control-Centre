@@ -14,6 +14,8 @@ export interface AdminPrincipal {
   primaryDepartment: string;
   role: string;
   status: string;
+  verificationStatus?: string;
+  accessStatus?: string;
   departments: string[];
   actions: string[];
   sessionRevokedAt?: string;
@@ -39,6 +41,20 @@ const ALL_DEPARTMENTS = [
   'platform_settings',
 ];
 
+export const EMAIL_PERMISSIONS = [
+  'email.view',
+  'email.compose',
+  'email.send',
+  'email.send_bulk',
+  'email.schedule',
+  'email.manage_templates',
+  'email.view_reports',
+  'email.retry_failed',
+  'email.manage_settings',
+] as const;
+
+export type EmailPermissionKey = (typeof EMAIL_PERMISSIONS)[number];
+
 const ALL_ACTIONS = [
   'view',
   'read',
@@ -51,6 +67,7 @@ const ALL_ACTIONS = [
   'revoke',
   'export',
   'manage',
+  ...EMAIL_PERMISSIONS,
 ];
 
 interface AttemptState {
@@ -115,6 +132,7 @@ const ACTION_ALIASES: Record<string, string[]> = {
 };
 
 function hasNormalizedAction(actions: string[], required: string): boolean {
+  if (actions.includes('manage')) return true;
   const aliases = ACTION_ALIASES[required] || [required];
   return aliases.some((a) => actions.includes(a));
 }
@@ -182,9 +200,37 @@ export async function requireAdminAuth(
       return;
     }
 
-    if (adminDoc.status !== 'active') {
+    if (adminDoc.status === 'pending_verification' || adminDoc.accessStatus === 'inactive') {
+      res.status(403).json({
+        error:
+          'Your staff account registration is complete and currently awaiting Super Administrator verification.',
+        accountStatus: 'pending_verification',
+        verificationStatus: String(adminDoc.verificationStatus || 'pending_verification'),
+        accessStatus: String(adminDoc.accessStatus || 'inactive'),
+        department: String(adminDoc.primaryDepartment || ''),
+        role: String(adminDoc.role || ''),
+      });
+      return;
+    }
+
+    if (adminDoc.status === 'rejected') {
+      res.status(403).json({
+        error: 'Your staff account registration was rejected by the Super Administrator.',
+        accountStatus: 'rejected',
+        verificationStatus: 'rejected',
+        accessStatus: String(adminDoc.accessStatus || 'blocked'),
+        rejectionReason:
+          typeof adminDoc.rejectionReason === 'string' ? adminDoc.rejectionReason : '',
+        department: String(adminDoc.primaryDepartment || ''),
+        role: String(adminDoc.role || ''),
+      });
+      return;
+    }
+
+    if (adminDoc.status !== 'active' || adminDoc.accessStatus === 'blocked') {
       res.status(403).json({
         error: `Staff account status is '${String(adminDoc.status)}'. Access blocked.`,
+        accountStatus: String(adminDoc.status),
       });
       return;
     }
@@ -218,6 +264,10 @@ export async function requireAdminAuth(
       ),
       role: String(adminDoc.role || ''),
       status: String(adminDoc.status || ''),
+      verificationStatus:
+        typeof adminDoc.verificationStatus === 'string' ? adminDoc.verificationStatus : undefined,
+      accessStatus:
+        typeof adminDoc.accessStatus === 'string' ? adminDoc.accessStatus : undefined,
       departments,
       actions: Array.isArray(adminDoc.actions) ? (adminDoc.actions as string[]) : [],
       sessionRevokedAt:
@@ -259,6 +309,25 @@ export function requirePermission(department: string, action: string) {
   };
 }
 
+export function requireSuperAdmin(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): void {
+  const admin = req.admin;
+  if (!admin) {
+    res.status(401).json({ error: 'Authentication required.' });
+    return;
+  }
+  if (admin.role !== 'SUPER_ADMIN') {
+    res.status(403).json({
+      error: 'Only the Super Administrator is authorized to perform staff verification or governance actions.',
+    });
+    return;
+  }
+  next();
+}
+
 export function requireStaffManager(
   req: AuthenticatedRequest,
   res: Response,
@@ -280,3 +349,82 @@ export function requireStaffManager(
     error: 'Only the Super Administrator or authorized Staff Manager can perform this operation.',
   });
 }
+
+export function requireDeptInvitationManager(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): void {
+  const admin = req.admin;
+  if (!admin) {
+    res.status(401).json({ error: 'Authentication required.' });
+    return;
+  }
+  if (admin.role === 'SUPER_ADMIN' || admin.actions.includes('manage')) {
+    next();
+    return;
+  }
+  res.status(403).json({
+    error: 'Only the Super Administrator or an authorized department manager can generate invitations.',
+  });
+}
+
+export function hasEmailPermission(admin: AdminPrincipal, permission: EmailPermissionKey): boolean {
+  if (admin.role === 'SUPER_ADMIN') return true;
+  if (admin.actions.includes(permission)) return true;
+  // Backward-compatible fallback for legacy staff invited before explicit email.* grants
+  const hasExplicitEmailGrant = admin.actions.some((a) => a.startsWith('email.'));
+  if (!hasExplicitEmailGrant) {
+    if (permission === 'email.view' || permission === 'email.view_reports') {
+      return hasNormalizedAction(admin.actions, 'view') || admin.actions.includes('manage');
+    }
+    if (permission === 'email.compose' || permission === 'email.send') {
+      return (
+        hasNormalizedAction(admin.actions, 'edit') ||
+        hasNormalizedAction(admin.actions, 'create') ||
+        admin.actions.includes('manage')
+      );
+    }
+    if (
+      (permission === 'email.manage_settings' ||
+        permission === 'email.manage_templates' ||
+        permission === 'email.retry_failed') &&
+      admin.departments.includes('platform_settings')
+    ) {
+      return hasNormalizedAction(admin.actions, 'edit') || admin.actions.includes('manage');
+    }
+  }
+  return false;
+}
+
+export function requireEmailPermission(...permissions: EmailPermissionKey[]) {
+  return (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {
+    const admin = req.admin;
+    if (!admin) {
+      res.status(401).json({ error: 'Authentication required.' });
+      return;
+    }
+    const allowed = permissions.some((p) => hasEmailPermission(admin, p));
+    if (!allowed) {
+      res.status(403).json({
+        error: `Insufficient Email Centre permissions: requires ${permissions.join(' or ')}.`,
+      });
+      return;
+    }
+    next();
+  };
+}
+
+export function resolveScopedDepartment(admin: AdminPrincipal, requestedDept?: string): string {
+  if (admin.role === 'SUPER_ADMIN') {
+    if (requestedDept && ALL_DEPARTMENTS.includes(requestedDept)) return requestedDept;
+    return requestedDept === 'all' ? 'all' : 'all';
+  }
+  if (requestedDept && admin.departments.includes(requestedDept)) {
+    return requestedDept;
+  }
+  return admin.primaryDepartment && admin.primaryDepartment !== 'all'
+    ? admin.primaryDepartment
+    : admin.departments[0] || 'platform_settings';
+}
+

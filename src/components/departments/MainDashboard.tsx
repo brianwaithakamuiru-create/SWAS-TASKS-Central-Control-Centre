@@ -206,6 +206,14 @@ export function MainDashboard({
 
           <button
             type="button"
+            onClick={() => onNavigate('email_centre', 'dashboard')}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 typo-button text-[#1265C8] bg-[#E9F2FF] hover:bg-[#1265C8] hover:text-white border border-[#1265C8]/30 rounded-md transition-colors whitespace-nowrap"
+          >
+            Email Centre
+          </button>
+
+          <button
+            type="button"
             onClick={() => onNavigate('staff_management', 'invite_staff')}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 typo-button text-white bg-[#1265C8] hover:bg-[#102B50] rounded-md transition-colors whitespace-nowrap"
           >

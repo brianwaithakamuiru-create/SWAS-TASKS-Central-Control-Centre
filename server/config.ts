@@ -39,7 +39,7 @@ export const serverConfig = {
   )
     .trim()
     .toLowerCase(),
-  emailSenderName: (process.env.EMAIL_SENDER_NAME || 'SWAS TASKS').trim(),
+  emailSenderName: (process.env.EMAIL_SENDER_NAME || 'SWAS TASKS Organization').trim(),
   emailReplyTo: (
     process.env.EMAIL_REPLY_TO ||
     process.env.OFFICIAL_PLATFORM_EMAIL ||
@@ -55,6 +55,8 @@ export const serverConfig = {
   smtpPass: process.env.SMTP_PASS || '',
   resendApiKey: process.env.RESEND_API_KEY || '',
   emailFrom: (process.env.EMAIL_FROM || '').trim(),
+  emailWebhookSecret: (process.env.EMAIL_WEBHOOK_SECRET || '').trim(),
+  maxEmailAttachmentBytes: 5 * 1024 * 1024,
   twilioAccountSid: process.env.TWILIO_ACCOUNT_SID || '',
   twilioAuthToken: process.env.TWILIO_AUTH_TOKEN || '',
   twilioFromNumber: process.env.TWILIO_FROM_NUMBER || '',

@@ -1,4 +1,10 @@
-import type { AdminAction, AdminRoleId, DepartmentId, EightDepartmentId } from '../types/admin';
+import type {
+  AdminAction,
+  AdminRoleId,
+  DepartmentId,
+  EightDepartmentId,
+  EmailPermission,
+} from '../types/admin';
 
 export interface SubDepartmentItem {
   id: string;
@@ -24,6 +30,7 @@ export interface DepartmentNavConfig {
 
 export const STAFF_MANAGEMENT_SUBDEPARTMENTS: SubDepartmentItem[] = [
   { id: 'all_staff', label: 'All Staff' },
+  { id: 'staff_verification', label: 'Staff Verification' },
   { id: 'invite_staff', label: 'Invite Staff' },
   { id: 'department_assignments', label: 'Department Assignments' },
   { id: 'pending_invitations', label: 'Pending Invitations' },
@@ -46,6 +53,37 @@ export const GRANULAR_PERMISSIONS: { id: AdminAction; label: string; description
   { id: 'revoke', label: 'Revoke', description: 'Revoke credentials, sessions, or access' },
   { id: 'export', label: 'Export', description: 'Export financial or audit reports' },
   { id: 'manage', label: 'Manage', description: 'Full operational management within assigned department' },
+];
+
+export const EMAIL_CENTRE_SUBDEPARTMENTS: SubDepartmentItem[] = [
+  { id: 'dashboard', label: 'Email Dashboard' },
+  { id: 'compose', label: 'Compose Email' },
+  { id: 'recipients', label: 'Recipients' },
+  { id: 'templates', label: 'Email Templates' },
+  { id: 'campaigns', label: 'Bulk Campaigns' },
+  { id: 'scheduled', label: 'Scheduled Emails' },
+  { id: 'sent', label: 'Sent History' },
+  { id: 'failed', label: 'Failed & Retries' },
+  { id: 'drafts', label: 'Drafts' },
+  { id: 'reports', label: 'Analytics & Reports' },
+  { id: 'settings', label: 'Email Settings' },
+  { id: 'permissions', label: 'Permissions Matrix' },
+];
+
+export const EMAIL_GRANULAR_PERMISSIONS: {
+  id: EmailPermission;
+  label: string;
+  description: string;
+}[] = [
+  { id: 'email.view', label: 'email.view', description: 'Open Email Centre & view authorized email history' },
+  { id: 'email.compose', label: 'email.compose', description: 'Draft emails using live department recipients' },
+  { id: 'email.send', label: 'email.send', description: 'Dispatch single authorized emails via swastaskorg@gmail.com' },
+  { id: 'email.send_bulk', label: 'email.send_bulk', description: 'Send bulk emails to multiple selected platform records' },
+  { id: 'email.schedule', label: 'email.schedule', description: 'Schedule emails for future delivery and cancel queued sends' },
+  { id: 'email.manage_templates', label: 'email.manage_templates', description: 'Edit email templates and notification rules' },
+  { id: 'email.view_reports', label: 'email.view_reports', description: 'Inspect delivery analytics and export CSV reports' },
+  { id: 'email.retry_failed', label: 'email.retry_failed', description: 'Retry failed or unconfigured email deliveries' },
+  { id: 'email.manage_settings', label: 'email.manage_settings', description: 'Manage official sender identity, DNS checks, and test emails' },
 ];
 
 export const DEPARTMENT_ROLE_PRESETS: Record<EightDepartmentId, string[]> = {
@@ -269,9 +307,10 @@ export const ROLE_DEFINITIONS: Record<string, RoleDefinition> = {
   SUPER_ADMIN: {
     id: 'SUPER_ADMIN',
     label: 'Super Administrator',
-    description: 'Full control across all 8 departments, staff invitations, role governance, API keys, and platform settings.',
+    description: 'Full control across all 8 departments, Email Centre, staff invitations, role governance, API keys, and platform settings.',
     departments: [
       'staff_management',
+      'email_centre',
       'user_management',
       'client_management',
       'task_monitoring',
@@ -281,62 +320,92 @@ export const ROLE_DEFINITIONS: Record<string, RoleDefinition> = {
       'activity_logs',
       'platform_settings',
     ],
-    actions: ['view', 'create', 'edit', 'approve', 'reject', 'suspend', 'revoke', 'export', 'manage'],
+    actions: [
+      'view',
+      'create',
+      'edit',
+      'approve',
+      'reject',
+      'suspend',
+      'revoke',
+      'export',
+      'manage',
+      'email.view',
+      'email.compose',
+      'email.send',
+      'email.send_bulk',
+      'email.schedule',
+      'email.manage_templates',
+      'email.view_reports',
+      'email.retry_failed',
+      'email.manage_settings',
+    ],
   },
   USER_MANAGEMENT_ADMIN: {
     id: 'USER_MANAGEMENT_ADMIN',
     label: 'User Management Admin',
     description: 'Manage registered worker & user accounts, verification, suspensions, and recovery.',
     departments: ['user_management'],
-    actions: ['view', 'create', 'edit', 'approve', 'reject', 'suspend'],
+    actions: ['view', 'create', 'edit', 'approve', 'reject', 'suspend', 'email.view', 'email.compose', 'email.send', 'email.view_reports', 'email.retry_failed'],
   },
   CLIENT_MANAGEMENT_ADMIN: {
     id: 'CLIENT_MANAGEMENT_ADMIN',
     label: 'Client Management Admin',
     description: 'Manage client profiles, business verifications, complaints, and support cases.',
     departments: ['client_management'],
-    actions: ['view', 'create', 'edit', 'approve', 'reject', 'suspend'],
+    actions: ['view', 'create', 'edit', 'approve', 'reject', 'suspend', 'email.view', 'email.compose', 'email.send', 'email.view_reports', 'email.retry_failed'],
   },
   TASK_MODERATOR: {
     id: 'TASK_MODERATOR',
     label: 'Task Moderator',
     description: 'Monitor tasks, enforce moderation policies, manage categories, and review reports.',
     departments: ['task_monitoring'],
-    actions: ['view', 'edit', 'approve', 'reject', 'suspend'],
+    actions: ['view', 'edit', 'approve', 'reject', 'suspend', 'email.view', 'email.compose', 'email.send', 'email.view_reports'],
   },
   WORKFORCE_OPERATIONS_ADMIN: {
     id: 'WORKFORCE_OPERATIONS_ADMIN',
     label: 'Workforce Operations Admin',
     description: 'Oversee bids, assignments, work submissions, revisions, and dispute resolution.',
     departments: ['bids_assignments'],
-    actions: ['view', 'edit', 'approve', 'reject'],
+    actions: ['view', 'edit', 'approve', 'reject', 'email.view', 'email.compose', 'email.send', 'email.view_reports'],
   },
   FINANCE_ADMIN: {
     id: 'FINANCE_ADMIN',
     label: 'Finance Admin',
     description: 'Review verified KES transactions, wallets, withdrawals, and financial reconciliation.',
     departments: ['finance_control'],
-    actions: ['view', 'edit', 'approve', 'reject', 'export'],
+    actions: ['view', 'edit', 'approve', 'reject', 'export', 'email.view', 'email.compose', 'email.send', 'email.view_reports', 'email.retry_failed'],
   },
   API_ADMINISTRATOR: {
     id: 'API_ADMINISTRATOR',
     label: 'API Administrator',
     description: 'Issue, rotate, and revoke API credentials, manage connected websites, and monitor API telemetry.',
     departments: ['api_management'],
-    actions: ['view', 'create', 'edit', 'revoke'],
+    actions: ['view', 'create', 'edit', 'revoke', 'email.view', 'email.compose', 'email.send', 'email.view_reports'],
   },
   AUDIT_ADMINISTRATOR: {
     id: 'AUDIT_ADMINISTRATOR',
     label: 'Audit Administrator',
     description: 'Inspect immutable activity logs, security events, login history, and export audit reports.',
     departments: ['activity_logs'],
-    actions: ['view', 'export'],
+    actions: ['view', 'export', 'email.view', 'email.view_reports'],
   },
   PLATFORM_CONFIGURATION_ADMIN: {
     id: 'PLATFORM_CONFIGURATION_ADMIN',
     label: 'Platform Configuration Admin',
-    description: 'Configure branding, fees, registration rules, maintenance mode, and legal policies.',
+    description: 'Configure branding, fees, registration rules, email templates, maintenance mode, and legal policies.',
     departments: ['platform_settings'],
-    actions: ['view', 'edit'],
+    actions: [
+      'view',
+      'edit',
+      'email.view',
+      'email.compose',
+      'email.send',
+      'email.schedule',
+      'email.manage_templates',
+      'email.view_reports',
+      'email.retry_failed',
+      'email.manage_settings',
+    ],
   },
 };
